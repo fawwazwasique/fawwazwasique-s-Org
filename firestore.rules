@@ -34,7 +34,7 @@ service cloud.firestore {
     //   - visitDate: timestamp
     //   - visitOutcome: string
     //   - followUpDate: timestamp
-    //   - lob: string (required, in ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'MRDSS Oil', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'])
+    //   - lob: string (required, in ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'Oil', 'Local Parts', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'])
     //   - createdAt: timestamp (required)
     //   - updatedAt: timestamp (required)
     //   - uid: string (required, immutable)
@@ -120,7 +120,7 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidQuotation(data) {
-      let validLobs = ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'MRDSS Oil', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'];
+      let validLobs = ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'Oil', 'Local Parts', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'];
       let validZones = ['East', 'West', 'North', 'South', 'Central'];
       let validCustomerCategories = ['AMC', 'NON - AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC'];
       

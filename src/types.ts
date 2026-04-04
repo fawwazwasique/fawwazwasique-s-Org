@@ -37,7 +37,7 @@ export interface Quotation {
   visitDate: Timestamp;
   visitOutcome: string;
   followUpDate: Timestamp;
-  lob: 'Core' | 'RRA Kit' | 'Bearing & Greasing' | 'Controller conversion' | 'Hose & Belt' | 'Filters' | 'Coolant' | 'Radiwash' | 'Recon parts' | 'Battery' | 'CC' | 'MRDSS Oil' | 'New Engines' | 'Recon Engine' | 'DFK' | 'RAS' | 'RECD' | 'DATUM' | 'Service';
+  lob: 'Core' | 'RRA Kit' | 'Bearing & Greasing' | 'Controller conversion' | 'Hose & Belt' | 'Filters' | 'Coolant' | 'Radiwash' | 'Recon parts' | 'Battery' | 'CC' | 'Oil' | 'Local Parts' | 'New Engines' | 'Recon Engine' | 'DFK' | 'RAS' | 'RECD' | 'DATUM' | 'Service';
   createdAt: Timestamp;
   updatedAt: Timestamp;
   uid: string;

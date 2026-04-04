@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   collection, 
   onSnapshot, 
@@ -129,7 +129,7 @@ export default function App() {
     shippingAddress: '',
     zone: 'Central',
     customer: '',
-    confidence: 50,
+    confidence: 10,
     visitDate: format(new Date(), 'yyyy-MM-dd'),
     visitOutcome: '',
     followUpDate: format(new Date(), 'yyyy-MM-dd'),
@@ -313,7 +313,7 @@ export default function App() {
               shippingAddress: row['Shipping Address'] || '',
               zone: row['Zone'] || 'Central',
               customer: row['Customer'] || '',
-              confidence: Number(row['Confidence']) || 50,
+              confidence: Number(row['Confidence']) || 10,
               visitDate: Timestamp.fromDate(safeDate(row['Visit Date'])),
               visitOutcome: row['Visit Outcome'] || '',
               followUpDate: Timestamp.fromDate(safeDate(row['Follow up'])),
@@ -325,7 +325,7 @@ export default function App() {
               updatedAt: serverTimestamp(),
               followUps: [],
               confidenceHistory: [{
-                value: Number(row['Confidence']) || 50,
+                value: Number(row['Confidence']) || 10,
                 timestamp: Timestamp.now()
               }]
             });
@@ -694,6 +694,57 @@ export default function App() {
     setToast({ message: `Report downloaded with ${filtered.length} quotes`, type: 'success' });
   };
 
+  const handleDownloadConfidenceReport = () => {
+    const fromDate = reportDateRange.from ? new Date(reportDateRange.from) : null;
+    const toDate = reportDateRange.to ? new Date(reportDateRange.to) : null;
+
+    const historyData: any[] = [];
+
+    quotations.forEach(q => {
+      if (!q.confidenceHistory) return;
+
+      q.confidenceHistory.forEach((h, index) => {
+        const hDate = h.timestamp.toDate();
+        
+        if (fromDate && hDate < fromDate) return;
+        if (toDate) {
+          const endDay = new Date(toDate);
+          endDay.setHours(23, 59, 59, 999);
+          if (hDate > endDay) return;
+        }
+
+        const prevValue = index > 0 ? q.confidenceHistory![index - 1].value : null;
+
+        historyData.push({
+          'Quote No.': q.quoteNo,
+          'Customer': q.customer,
+          'Account': q.account,
+          'Date of Change': format(hDate, 'yyyy-MM-dd HH:mm:ss'),
+          'Previous Confidence (%)': prevValue !== null ? prevValue : 'Initial',
+          'New Confidence (%)': h.value,
+          'Change': prevValue !== null ? `${h.value - prevValue}%` : 'N/A'
+        });
+      });
+    });
+
+    if (historyData.length === 0) {
+      setToast({ message: 'No confidence changes found in this date range', type: 'error' });
+      return;
+    }
+
+    const csv = Papa.unparse(historyData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Confidence_History_Report_${reportDateRange.from}_to_${reportDateRange.to}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setToast({ message: `Confidence history report downloaded with ${historyData.length} records`, type: 'success' });
+  };
+
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const handleDeleteAllData = (collectionName: string, label: string) => {
@@ -979,6 +1030,47 @@ export default function App() {
     };
   }, [quotations, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
+  const confidenceAnalysis = useMemo(() => {
+    const fromDate = reportDateRange.from ? new Date(reportDateRange.from) : null;
+    const toDate = reportDateRange.to ? new Date(reportDateRange.to) : null;
+
+    let totalChanges = 0;
+    let positiveChanges = 0;
+    let negativeChanges = 0;
+    let totalValueChange = 0;
+
+    quotations.forEach(q => {
+      if (!q.confidenceHistory) return;
+
+      q.confidenceHistory.forEach((h, index) => {
+        if (index === 0) return;
+
+        const hDate = h.timestamp.toDate();
+        if (fromDate && hDate < fromDate) return;
+        if (toDate) {
+          const endDay = new Date(toDate);
+          endDay.setHours(23, 59, 59, 999);
+          if (hDate > endDay) return;
+        }
+
+        const prevValue = q.confidenceHistory![index - 1].value;
+        const change = h.value - prevValue;
+
+        totalChanges++;
+        if (change > 0) positiveChanges++;
+        else if (change < 0) negativeChanges++;
+        totalValueChange += change;
+      });
+    });
+
+    return {
+      totalChanges,
+      positiveChanges,
+      negativeChanges,
+      avgChange: totalChanges > 0 ? (totalValueChange / totalChanges).toFixed(1) : 0
+    };
+  }, [quotations, reportDateRange]);
+
   const filteredQuotations = useMemo(() => {
     return quotations.filter(q => {
     const matchesSearch = (q.customer || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1156,7 +1248,7 @@ export default function App() {
                 options={[
                   'Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 
                   'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 
-                  'MRDSS Oil', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'
+                  'Oil', 'Local Parts', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'
                 ]}
                 selected={lobFilter}
                 onChange={setLobFilter}
@@ -1908,13 +2000,54 @@ export default function App() {
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Ready for export</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={handleDownloadReport}
-                    className="w-full md:w-auto px-10 py-4 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#00AEEF]/20 active:scale-95"
-                  >
-                    <Download size={20} />
-                    Download CSV Report
-                  </button>
+                  <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+                    <button 
+                      onClick={handleDownloadReport}
+                      className="flex-1 md:flex-none px-8 py-4 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#00AEEF]/20 active:scale-95"
+                    >
+                      <Download size={20} />
+                      Quotes Report
+                    </button>
+                    <button 
+                      onClick={handleDownloadConfidenceReport}
+                      className="flex-1 md:flex-none px-8 py-4 bg-[#8DC63F] hover:bg-[#7eb138] text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#8DC63F]/20 active:scale-95"
+                    >
+                      <TrendingUp size={20} />
+                      Confidence History
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Confidence Analysis Section */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="w-14 h-14 bg-[#8DC63F]/10 rounded-2xl flex items-center justify-center text-[#8DC63F]">
+                  <TrendingUp size={28} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-slate-900">Confidence Analysis</h3>
+                  <p className="text-slate-500 font-medium">Tracking how confidence levels moved in the selected period.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Changes</p>
+                  <p className="text-2xl font-bold text-slate-900">{confidenceAnalysis.totalChanges}</p>
+                </div>
+                <div className="p-6 bg-emerald-50 rounded-2xl border border-emerald-100">
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Upward Moves</p>
+                  <p className="text-2xl font-bold text-emerald-700">+{confidenceAnalysis.positiveChanges}</p>
+                </div>
+                <div className="p-6 bg-rose-50 rounded-2xl border border-rose-100">
+                  <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mb-1">Downward Moves</p>
+                  <p className="text-2xl font-bold text-rose-700">-{confidenceAnalysis.negativeChanges}</p>
+                </div>
+                <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Avg. Change</p>
+                  <p className="text-2xl font-bold text-blue-700">{confidenceAnalysis.avgChange}%</p>
                 </div>
               </div>
             </div>
@@ -2611,7 +2744,8 @@ export default function App() {
                       <option value="Recon parts">Recon parts</option>
                       <option value="Battery">Battery</option>
                       <option value="CC">CC</option>
-                      <option value="MRDSS Oil">MRDSS Oil</option>
+                      <option value="Oil">Oil</option>
+                      <option value="Local Parts">Local Parts</option>
                       <option value="New Engines">New Engines</option>
                       <option value="Recon Engine">Recon Engine</option>
                       <option value="DFK">DFK</option>
@@ -3163,7 +3297,7 @@ export default function App() {
       {/* Confidence History Modal */}
       <AnimatePresence>
         {historyQuotation && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3425,6 +3559,7 @@ export default function App() {
                         <th className="pb-4">Status</th>
                         <th className="pb-4">LOB</th>
                         <th className="pb-4 text-right">Value</th>
+                        <th className="pb-4 text-right">History</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -3450,6 +3585,15 @@ export default function App() {
                             <td className="py-4 text-xs font-medium text-slate-500">{q.lob}</td>
                             <td className="py-4 text-sm font-bold text-slate-900 text-right">
                               ₹{(q.baseAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-4 text-right">
+                              <button 
+                                onClick={() => setHistoryQuotation(q)}
+                                className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
+                                title="Confidence History"
+                              >
+                                <History size={16} />
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -3522,48 +3666,75 @@ function StatCard({ title, value, icon, color }: { title: string, value: string 
 }
 
 function MultiSelect({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
-    <div className="relative group">
-      <div className="min-h-[42px] w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus-within:ring-2 focus-within:ring-[#00AEEF]/20 transition-all flex flex-wrap gap-1.5 items-center cursor-pointer">
+    <div className="relative" ref={containerRef}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`min-h-[42px] w-full px-4 py-2 bg-slate-50 border rounded-xl transition-all flex flex-wrap gap-1.5 items-center cursor-pointer ${isOpen ? 'ring-2 ring-[#00AEEF]/20 border-[#00AEEF]' : 'border-slate-200'}`}
+      >
         {selected.length === 0 ? (
           <span className="text-slate-400 text-sm">{placeholder}</span>
         ) : (
           selected.map(item => (
             <span key={item} className="bg-[#00AEEF] text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
               {item}
-              <button onClick={(e) => { e.stopPropagation(); onChange(selected.filter(l => l !== item)); }} className="hover:text-red-200">×</button>
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  onChange(selected.filter(l => l !== item)); 
+                }} 
+                className="hover:text-red-200"
+              >
+                ×
+              </button>
             </span>
           ))
         )}
       </div>
-      <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto hidden group-hover:block hover:block">
-        <label className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100">
-          <input 
-            type="checkbox" 
-            className="w-4 h-4 rounded border-slate-300 text-[#00AEEF] focus:ring-[#00AEEF]"
-            checked={selected.length === options.length && options.length > 0}
-            onChange={(e) => {
-              if (e.target.checked) onChange(options);
-              else onChange([]);
-            }}
-          />
-          <span className="text-sm font-bold text-slate-900 italic">Select All</span>
-        </label>
-        {options.map(opt => (
-          <label key={opt} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors">
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+          <label className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100">
             <input 
               type="checkbox" 
               className="w-4 h-4 rounded border-slate-300 text-[#00AEEF] focus:ring-[#00AEEF]"
-              checked={selected.includes(opt)}
+              checked={selected.length === options.length && options.length > 0}
               onChange={(e) => {
-                if (e.target.checked) onChange([...selected, opt]);
-                else onChange(selected.filter(l => l !== opt));
+                if (e.target.checked) onChange(options);
+                else onChange([]);
               }}
             />
-            <span className="text-sm font-medium text-slate-700">{opt}</span>
+            <span className="text-sm font-bold text-slate-900 italic">Select All</span>
           </label>
-        ))}
-      </div>
+          {options.map(opt => (
+            <label key={opt} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors">
+              <input 
+                type="checkbox" 
+                className="w-4 h-4 rounded border-slate-300 text-[#00AEEF] focus:ring-[#00AEEF]"
+                checked={selected.includes(opt)}
+                onChange={(e) => {
+                  if (e.target.checked) onChange([...selected, opt]);
+                  else onChange(selected.filter(l => l !== opt));
+                }}
+              />
+              <span className="text-sm font-medium text-slate-700">{opt}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

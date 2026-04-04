@@ -31,7 +31,7 @@
         "visitDate": { "type": "string", "format": "date-time" },
         "visitOutcome": { "type": "string" },
         "followUpDate": { "type": "string", "format": "date-time" },
-        "lob": { "type": "string", "enum": ["Core", "RRA Kit", "Bearing & Greasing", "Controller conversion", "Hose & Belt", "Filters", "Coolant", "Radiwash", "Recon parts", "Battery", "CC", "MRDSS Oil", "New Engines", "Recon Engine", "DFK", "RAS", "RECD", "DATUM", "Service"] },
+        "lob": { "type": "string", "enum": ["Core", "RRA Kit", "Bearing & Greasing", "Controller conversion", "Hose & Belt", "Filters", "Coolant", "Radiwash", "Recon parts", "Battery", "CC", "Oil", "Local Parts", "New Engines", "Recon Engine", "DFK", "RAS", "RECD", "DATUM", "Service"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "uid": { "type": "string" },
