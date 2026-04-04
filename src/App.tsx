@@ -48,7 +48,9 @@ import {
   Zap,
   History,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Download,
+  Users
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
@@ -90,7 +92,7 @@ export default function App() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'reports' | 'data-management' | 'customer-wise'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [masterSearchTerm, setMasterSearchTerm] = useState('');
   const [fosList, setFosList] = useState<FOS[]>([]);
@@ -103,6 +105,7 @@ export default function App() {
   const [fosFilter, setFosFilter] = useState<string[]>([]);
   const [branchFilter, setBranchFilter] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  const [reportDateRange, setReportDateRange] = useState({ from: format(new Date(), 'yyyy-MM-01'), to: format(new Date(), 'yyyy-MM-dd') });
   
   // Form state
   const [formData, setFormData] = useState({
@@ -143,6 +146,7 @@ export default function App() {
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [duplicateItems, setDuplicateItems] = useState<{ newData: any, existingId: string }[]>([]);
   const [newBulkItems, setNewBulkItems] = useState<any[]>([]);
@@ -352,7 +356,16 @@ export default function App() {
             await Promise.all(promises);
             setIsBulkModalOpen(false);
             setBulkFile(null);
-            setToast({ message: `Successfully uploaded ${newItems.length} quotations`, type: 'success' });
+            
+            const highValueAdded = newItems.filter(item => item.baseAmount >= 100000).length;
+            if (highValueAdded > 0) {
+              setToast({ 
+                message: `Successfully uploaded ${newItems.length} quotations. ${highValueAdded} High Value quotes added!`, 
+                type: 'success' 
+              });
+            } else {
+              setToast({ message: `Successfully uploaded ${newItems.length} quotations`, type: 'success' });
+            }
           } catch (error) {
             handleFirestoreError(error, OperationType.CREATE, 'quotations');
             setToast({ message: 'Failed to upload quotations', type: 'error' });
@@ -614,6 +627,117 @@ export default function App() {
     }
   };
 
+  const handleDownloadReport = () => {
+    const fromDate = reportDateRange.from ? new Date(reportDateRange.from) : null;
+    const toDate = reportDateRange.to ? new Date(reportDateRange.to) : null;
+
+    const filtered = quotations.filter(q => {
+      if (!q.quoteLineCreatedDate) return false;
+      const qDate = q.quoteLineCreatedDate.toDate();
+      
+      if (fromDate && qDate < fromDate) return false;
+      if (toDate) {
+        const endDay = new Date(toDate);
+        endDay.setHours(23, 59, 59, 999);
+        if (qDate > endDay) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      setToast({ message: 'No quotations found in this date range', type: 'error' });
+      return;
+    }
+
+    const csvData = filtered.map(q => ({
+      'Quote No.': q.quoteNo,
+      'Opportunity Number': q.opportunityNumber,
+      'Quote Line: Created Date': q.quoteLineCreatedDate ? format(q.quoteLineCreatedDate.toDate(), 'yyyy-MM-dd') : '',
+      'Account': q.account,
+      'Item': q.item,
+      'Item Description': q.itemDescription,
+      'Quantity': q.quantity,
+      'Unit Price': q.unitPrice,
+      'Base Amount': q.baseAmount,
+      'Status': q.status,
+      'Sale Order': q.saleOrder,
+      'Branch': q.branch,
+      'Created By': q.quoteLineCreatedBy,
+      'Asset': q.asset,
+      'FOS Name': q.fosName,
+      'Billing Address': q.billingAddress,
+      'Shipping Address': q.shippingAddress,
+      'Zone': q.zone,
+      'Customer': q.customer,
+      'Customer Category': q.customerCategory,
+      'Confidence (%)': q.confidence,
+      'Visit Date': q.visitDate ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : '',
+      'Visit Outcome': q.visitOutcome,
+      'Follow up Date': q.followUpDate ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : '',
+      'LOB': q.lob,
+      'Expected Month': q.expectedMonth || '',
+      'Remarks': q.remarks
+    }));
+
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Quotes_Report_${reportDateRange.from}_to_${reportDateRange.to}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setToast({ message: `Report downloaded with ${filtered.length} quotes`, type: 'success' });
+  };
+
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAllData = (collectionName: string, label: string) => {
+    setBulkDeleteConfirmation({ collection: collectionName, label });
+  };
+
+  const confirmBulkDelete = async () => {
+    if (!bulkDeleteConfirmation) return;
+    
+    const { collection: collectionName, label } = bulkDeleteConfirmation;
+    setBulkDeleteConfirmation(null);
+    setIsDeletingAll(true);
+    
+    try {
+      // In a real scenario with many docs, we'd batch delete. 
+      // For this app, we'll iterate through the local state IDs to delete from Firestore.
+      let targetIds: string[] = [];
+      if (collectionName === 'quotations') targetIds = quotations.map(q => q.id!);
+      else if (collectionName === 'fos') targetIds = fosList.map(f => f.id!);
+      else if (collectionName === 'visits') targetIds = visits.map(v => v.id!);
+      else if (collectionName === 'masterAssets') targetIds = masterAssets.map(m => m.id!);
+      else if (collectionName === 'all') {
+        // Special case for wiping everything
+        const allDeletes = [
+          ...quotations.map(q => deleteDoc(doc(db, 'quotations', q.id!))),
+          ...fosList.map(f => deleteDoc(doc(db, 'fos', f.id!))),
+          ...visits.map(v => deleteDoc(doc(db, 'visits', v.id!))),
+          ...masterAssets.map(m => deleteDoc(doc(db, 'masterAssets', m.id!)))
+        ];
+        await Promise.all(allDeletes);
+        setToast({ message: 'Successfully wiped entire database', type: 'success' });
+        return;
+      }
+
+      const deletePromises = targetIds.map(id => deleteDoc(doc(db, collectionName, id)));
+      await Promise.all(deletePromises);
+      
+      setToast({ message: `Successfully deleted all ${label}`, type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, collectionName === 'all' ? 'multiple' : collectionName);
+      setToast({ message: `Failed to delete ${label}`, type: 'error' });
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   const handleEditVisit = (visit: FOSVisit) => {
     setEditingVisit(visit);
     setVisitFormData({
@@ -836,6 +960,7 @@ export default function App() {
       top100ValueQuotes,
       top100CustomerQuotes,
       top100AgeingQuotes,
+      customerWiseValue,
       lobData: Object.entries(lobWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
       statusData: Object.entries(statusWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
       zoneData: Object.entries(zoneWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
@@ -850,9 +975,10 @@ export default function App() {
         })
         .sort((a, b) => a.raw.localeCompare(b.raw)),
     };
-  }, [quotations, lobFilter, dateRange]);
+  }, [quotations, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
-  const filteredQuotations = quotations.filter(q => {
+  const filteredQuotations = useMemo(() => {
+    return quotations.filter(q => {
     const matchesSearch = (q.customer || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (q.account || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (q.fosName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -882,7 +1008,8 @@ export default function App() {
     }
     
     return matchesSearch && matchesLob && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
-  });
+    });
+  }, [quotations, searchTerm, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
   const uniqueFosNames = useMemo(() => Array.from(new Set(quotations.map(q => q.fosName).filter(Boolean))), [quotations]);
   const uniqueBranches = useMemo(() => Array.from(new Set(quotations.map(q => q.branch).filter(Boolean))), [quotations]);
@@ -933,6 +1060,13 @@ export default function App() {
             <span className="font-semibold text-sm">Below 1 Lakh</span>
           </button>
           <button 
+            onClick={() => setActiveTab('customer-wise')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'customer-wise' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+          >
+            <Users size={20} />
+            <span className="font-semibold text-sm">Customer Wise</span>
+          </button>
+          <button 
             onClick={() => setActiveTab('top-100')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'top-100' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
           >
@@ -953,6 +1087,20 @@ export default function App() {
             <FileText size={20} />
             <span className="font-semibold text-sm">Master Sheet</span>
           </button>
+          <button 
+            onClick={() => setActiveTab('reports')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+          >
+            <Download size={20} />
+            <span className="font-semibold text-sm">Reports</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('data-management')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'data-management' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'hover:bg-red-500/10 hover:text-red-500'}`}
+          >
+            <Trash2 size={20} />
+            <span className="font-semibold text-sm">Data Management</span>
+          </button>
         </nav>
       </aside>
 
@@ -965,8 +1113,10 @@ export default function App() {
                activeTab === 'list' ? 'Quotations List' : 
                activeTab === 'high-value' ? 'High Value Quotations' :
                activeTab === 'below-1-lakh' ? 'Below 1 Lakh Quotations' :
+               activeTab === 'customer-wise' ? 'Customer Wise Quotations' :
                activeTab === 'top-100' ? 'Top 100 Quotations' :
                activeTab === 'master-sheet' ? 'Master Asset Mapping' :
+               activeTab === 'reports' ? 'Reports & Downloads' :
                'FOS Performance'}
             </h2>
             <p className="text-slate-500 text-sm mt-1">Ethen Power Solutionns Private Limited - Quotation Tracking</p>
@@ -1276,6 +1426,28 @@ export default function App() {
                 </ResponsiveContainer>
               </ChartWrapper>
 
+              <ChartWrapper title="Top 5 Customers by Value (₹)">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={analytics.top100CustomerQuotes.slice(0, 5)} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis 
+                      type="number" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                      tickFormatter={(value) => `₹${(value / 100000).toFixed(1)}L`}
+                    />
+                    <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
+                    <Tooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Value']}
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                    />
+                    <Bar dataKey="value" fill="#8DC63F" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
               <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-bold text-slate-900 tracking-tight">High Value Quotations (&ge; ₹1 Lakh)</h3>
@@ -1328,6 +1500,62 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'high-value' ? (
+          <div className="space-y-8">
+            <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">High Value Quotations (&ge; ₹1 Lakh)</h3>
+                  <p className="text-slate-500 text-sm mt-1">Quotations with base amount of ₹1,00,000 or more</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Value</p>
+                  <p className="text-2xl font-black text-[#00AEEF]">₹{analytics.highValueTotalValue.toLocaleString('en-IN')}</p>
+                  <p className="text-xs font-bold text-slate-400 mt-1">{analytics.highValueCount} Quotes</p>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Quote No</th>
+                      <th className="px-6 py-4">Customer</th>
+                      <th className="px-6 py-4">LOB</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4 text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {analytics.highValueQuotes.map((q) => (
+                      <tr key={q.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-6 py-4">
+                          <p className="font-semibold text-slate-900 text-sm">{q.quoteNo}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="font-semibold text-slate-900 text-sm">{q.customer}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
+                            {q.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                    {analytics.highValueQuotes.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">No high value quotes found matching filters</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         ) : activeTab === 'below-1-lakh' ? (
           <div className="space-y-8">
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
@@ -1373,6 +1601,57 @@ export default function App() {
                         <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'customer-wise' ? (
+          <div className="space-y-8">
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900 tracking-tight">Quotations Grouped by Customer</h3>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Total Customers: {Object.keys(analytics.customerWiseValue).length}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Customer Name</th>
+                      <th className="px-6 py-4">Quote Count</th>
+                      <th className="px-6 py-4 text-right">Total Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {Object.entries(
+                      filteredQuotations.reduce((acc, q) => {
+                        if (!acc[q.customer]) acc[q.customer] = { count: 0, value: 0 };
+                        acc[q.customer].count++;
+                        acc[q.customer].value += (q.baseAmount || 0);
+                        return acc;
+                      }, {} as Record<string, { count: number, value: number }>)
+                    )
+                    .sort((a, b) => (b[1] as { value: number }).value - (a[1] as { value: number }).value)
+                    .map(([customer, data]) => {
+                      const d = data as { count: number, value: number };
+                      return (
+                        <tr key={customer} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-6 py-4">
+                            <p className="font-semibold text-slate-900 text-sm">{customer}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">
+                              {d.count} Quotes
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">
+                            ₹{d.value.toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1540,6 +1819,238 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'reports' ? (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#00AEEF]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+              
+              <div className="relative">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-14 h-14 bg-[#00AEEF]/10 rounded-2xl flex items-center justify-center text-[#00AEEF]">
+                    <Download size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900">Download Quotes Report</h3>
+                    <p className="text-slate-500 font-medium">Select a date range to export your quotation data to CSV.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+                  <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">From Date</label>
+                    <div className="relative group">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#00AEEF] transition-colors" size={20} />
+                      <input 
+                        type="date" 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-[#00AEEF]/10 focus:border-[#00AEEF] transition-all font-bold text-slate-900"
+                        value={reportDateRange.from}
+                        onChange={(e) => setReportDateRange({ ...reportDateRange, from: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">To Date</label>
+                    <div className="relative group">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#00AEEF] transition-colors" size={20} />
+                      <input 
+                        type="date" 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-[#00AEEF]/10 focus:border-[#00AEEF] transition-all font-bold text-slate-900"
+                        value={reportDateRange.to}
+                        onChange={(e) => setReportDateRange({ ...reportDateRange, to: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 shadow-sm">
+                      <FileText size={20} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {quotations.filter(q => {
+                          if (!q.quoteLineCreatedDate) return false;
+                          const qDate = q.quoteLineCreatedDate.toDate();
+                          const from = reportDateRange.from ? new Date(reportDateRange.from) : null;
+                          const to = reportDateRange.to ? new Date(reportDateRange.to) : null;
+                          if (from && qDate < from) return false;
+                          if (to) {
+                            const endDay = new Date(to);
+                            endDay.setHours(23, 59, 59, 999);
+                            if (qDate > endDay) return false;
+                          }
+                          return true;
+                        }).length} Quotes Selected
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Ready for export</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleDownloadReport}
+                    className="w-full md:w-auto px-10 py-4 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#00AEEF]/20 active:scale-95"
+                  >
+                    <Download size={20} />
+                    Download CSV Report
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Report Format</p>
+                <p className="text-sm font-bold text-slate-900">CSV (Excel Compatible)</p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data Source</p>
+                <p className="text-sm font-bold text-slate-900">Live Quotations Data</p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Last Updated</p>
+                <p className="text-sm font-bold text-slate-900">{format(new Date(), 'dd MMM, HH:mm')}</p>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'data-management' ? (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+              
+              <div className="relative">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-14 h-14 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-500">
+                    <Trash2 size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900">Data Management</h3>
+                    <p className="text-slate-500 font-medium">Carefully manage and clear your application data.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Quotations Cleanup */}
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-[#00AEEF] shadow-sm">
+                          <FileText size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Quotations</p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{quotations.length} Records</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">Delete all quotation records from the database. This action is permanent.</p>
+                    <button 
+                      onClick={() => handleDeleteAllData('quotations', 'Quotations')}
+                      disabled={isDeletingAll || quotations.length === 0}
+                      className="w-full py-3 bg-white hover:bg-red-50 text-red-500 border border-red-100 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={16} />
+                      Clear All Quotations
+                    </button>
+                  </div>
+
+                  {/* FOS Cleanup */}
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-orange-500 shadow-sm">
+                          <Zap size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">FOS List</p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{fosList.length} Records</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">Remove all Field Officers from the system. This will affect existing assignments.</p>
+                    <button 
+                      onClick={() => handleDeleteAllData('fos', 'FOS Records')}
+                      disabled={isDeletingAll || fosList.length === 0}
+                      className="w-full py-3 bg-white hover:bg-red-50 text-red-500 border border-red-100 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={16} />
+                      Clear All FOS
+                    </button>
+                  </div>
+
+                  {/* Visits Cleanup */}
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-purple-500 shadow-sm">
+                          <Calendar size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">FOS Visits</p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{visits.length} Records</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">Delete all planned and completed visit records from the database.</p>
+                    <button 
+                      onClick={() => handleDeleteAllData('visits', 'Visit Records')}
+                      disabled={isDeletingAll || visits.length === 0}
+                      className="w-full py-3 bg-white hover:bg-red-50 text-red-500 border border-red-100 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={16} />
+                      Clear All Visits
+                    </button>
+                  </div>
+
+                  {/* Master Assets Cleanup */}
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-green-500 shadow-sm">
+                          <ShieldCheck size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Master Assets</p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{masterAssets.length} Records</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">Wipe the master asset mapping table. This will remove all asset-to-customer links.</p>
+                    <button 
+                      onClick={() => handleDeleteAllData('masterAssets', 'Master Assets')}
+                      disabled={isDeletingAll || masterAssets.length === 0}
+                      className="w-full py-3 bg-white hover:bg-red-50 text-red-500 border border-red-100 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={16} />
+                      Clear Master Assets
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-10 p-6 bg-red-50 rounded-2xl border border-red-100">
+                  <div className="flex gap-4">
+                    <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 shrink-0">
+                      <AlertCircle size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-red-900 font-bold mb-1">Danger Zone</h4>
+                      <p className="text-red-700 text-sm leading-relaxed mb-4">
+                        Deleting data from this panel will remove it permanently from the Firestore database. 
+                        Make sure you have exported a backup from the <strong>Reports</strong> tab before proceeding.
+                      </p>
+                      <div className="flex gap-4">
+                        <button 
+                          onClick={() => handleDeleteAllData('all', 'Database Records')}
+                          className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm transition-all shadow-lg shadow-red-600/20"
+                        >
+                          Wipe Entire Database
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2805,6 +3316,55 @@ export default function App() {
                     className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
                   >
                     Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk Delete Confirmation Modal */}
+      <AnimatePresence>
+        {bulkDeleteConfirmation && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setBulkDeleteConfirmation(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">
+                  {bulkDeleteConfirmation.collection === 'all' ? 'Wipe Entire Database?' : `Delete All ${bulkDeleteConfirmation.label}?`}
+                </h3>
+                <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                  {bulkDeleteConfirmation.collection === 'all' 
+                    ? "This will permanently delete EVERY SINGLE RECORD (Quotations, FOS, Visits, and Master Assets). This action is irreversible."
+                    : `Are you sure you want to delete all ${bulkDeleteConfirmation.label.toLowerCase()}? This action cannot be undone.`}
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setBulkDeleteConfirmation(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmBulkDelete}
+                    className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-600/20 active:scale-95 text-sm"
+                  >
+                    Yes, Delete All
                   </button>
                 </div>
               </div>
