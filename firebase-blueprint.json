@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Represents a sales quotation with tracking details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the quotation" },
+        "quoteNo": { "type": "string" },
+        "opportunityNumber": { "type": "string" },
+        "quoteLineCreatedDate": { "type": "string", "format": "date-time" },
+        "account": { "type": "string" },
+        "item": { "type": "string" },
+        "itemDescription": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "baseAmount": { "type": "number" },
+        "status": { "type": "string" },
+        "saleOrder": { "type": "string" },
+        "branch": { "type": "string" },
+        "quoteLineCreatedBy": { "type": "string" },
+        "remarks": { "type": "string" },
+        "asset": { "type": "string" },
+        "fosName": { "type": "string" },
+        "billingAddress": { "type": "string" },
+        "shippingAddress": { "type": "string" },
+        "zone": { "type": "string" },
+        "customer": { "type": "string" },
+        "customerCategory": { "type": "string", "enum": ["AMC", "NON - AMC", "Non - AMC", "Paid", "NEPI", "CAMC"], "description": "Category of the customer" },
+        "confidence": { "type": "number", "description": "Confidence level in percentage" },
+        "visitDate": { "type": "string", "format": "date-time" },
+        "visitOutcome": { "type": "string" },
+        "followUpDate": { "type": "string", "format": "date-time" },
+        "lob": { "type": "string", "enum": ["Core", "RRA Kit", "Bearing & Greasing", "Controller conversion", "Hose & Belt", "Filters", "Coolant", "Radiwash", "Recon parts", "Battery", "CC", "MRDSS Oil", "New Engines", "Recon Engine", "DFK", "RAS", "RECD", "DATUM", "Service"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" },
+        "confidenceHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "number" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "followUps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": { "type": "string", "format": "date-time" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["quoteNo", "account", "lob", "uid"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile and role information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "FOS": {
+      "title": "Field Officer Sales",
+      "description": "Represents a Field Officer Sales member.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "branch": { "type": "string" },
+        "zone": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "employeeId"]
+    },
+    "FOSVisit": {
+      "title": "FOS Visit",
+      "description": "Represents a planned or completed visit by an FOS.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fosId": { "type": "string" },
+        "fosName": { "type": "string" },
+        "customerName": { "type": "string" },
+        "plannedDate": { "type": "string", "format": "date-time" },
+        "actualDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Planned", "Completed", "Cancelled"] },
+        "outcome": { "type": "string" },
+        "purposeOfVisit": { "type": "string" },
+        "nextFollowUpDate": { "type": "string", "format": "date-time" },
+        "nextVisitDate": { "type": "string", "format": "date-time" },
+        "businessGenerated": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fosId", "fosName", "customerName", "plannedDate", "status"]
+    },
+    "MasterAsset": {
+      "title": "Master Asset",
+      "description": "Mapping of Asset No. to Customer Category.",
+      "type": "object",
+      "properties": {
+        "assetNo": { "type": "string" },
+        "category": { "type": "string", "enum": ["AMC", "NON - AMC", "NEPI", "CAMC"] }
+      },
+      "required": ["assetNo", "category"]
+    }
+  },
+  "firestore": {
+    "/quotations/{quotationId}": {
+      "schema": "Quotation",
+      "description": "Collection of all quotations."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile data."
+    },
+    "/fos/{fosId}": {
+      "schema": "FOS",
+      "description": "Collection of FOS members."
+    },
+    "/visits/{visitId}": {
+      "schema": "FOSVisit",
+      "description": "Collection of FOS visits."
+    },
+    "/masterAssets/{assetId}": {
+      "schema": "MasterAsset",
+      "description": "Master sheet for asset to category mapping."
+    }
+  }
+}

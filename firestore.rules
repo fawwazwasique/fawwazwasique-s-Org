@@ -1,0 +1,209 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: quotations
+    // Document ID: {quotationId}
+    // Fields:
+    //   - quoteNo: string (required)
+    //   - opportunityNumber: string
+    //   - quoteLineCreatedDate: timestamp
+    //   - account: string (required)
+    //   - item: string
+    //   - itemDescription: string
+    //   - quantity: number
+    //   - unitPrice: number
+    //   - baseAmount: number
+    //   - status: string
+    //   - saleOrder: string
+    //   - branch: string
+    //   - quoteLineCreatedBy: string
+    //   - remarks: string
+    //   - asset: string
+    //   - fosName: string
+    //   - billingAddress: string
+    //   - shippingAddress: string
+    //   - zone: string (in ['East', 'West', 'North', 'South', 'Central'])
+    //   - customer: string
+    //   - customerCategory: string (in ['AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC'])
+    //   - confidence: number
+    //   - visitDate: timestamp
+    //   - visitOutcome: string
+    //   - followUpDate: timestamp
+    //   - lob: string (required, in ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'MRDSS Oil', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'])
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (required)
+    //   - uid: string (required, immutable)
+    //   - followUps: list (optional)
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - email: string (required, immutable)
+    //   - displayName: string (optional)
+    //   - role: string (required, in ['admin', 'user'])
+    //
+    // Collection: masterAssets
+    // Document ID: {assetId}
+    // Fields:
+    //   - assetNo: string (required)
+    //   - category: string (required, in ['AMC', 'NON - AMC', 'NEPI', 'CAMC'])
+    //
+    // Collection: fos
+    // Document ID: {fosId}
+    // Fields:
+    //   - name: string (required)
+    //   - employeeId: string (required)
+    //   - branch: string
+    //   - zone: string
+    //   - createdAt: timestamp
+    //
+    // Collection: visits
+    // Document ID: {visitId}
+    // Fields:
+    //   - fosId: string (required)
+    //   - fosName: string (required)
+    //   - customerName: string (required)
+    //   - plannedDate: timestamp (required)
+    //   - actualDate: timestamp
+    //   - status: string (required, in ['Planned', 'Completed', 'Cancelled'])
+    //   - outcome: string
+    //   - purposeOfVisit: string
+    //   - nextFollowUpDate: timestamp
+    //   - nextVisitDate: timestamp
+    //   - businessGenerated: number
+    //   - createdAt: timestamp
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "maniranjangroup@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidQuotation(data) {
+      let validLobs = ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'MRDSS Oil', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'];
+      let validZones = ['East', 'West', 'North', 'South', 'Central'];
+      let validCustomerCategories = ['AMC', 'NON - AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC'];
+      
+      return hasRequiredFields(['quoteNo', 'account', 'lob', 'uid', 'createdAt', 'updatedAt']) &&
+             data.quoteNo is string &&
+             data.account is string &&
+             data.lob in validLobs &&
+             data.uid is string &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp &&
+             (!('zone' in data) || data.zone in validZones) &&
+             (!('customerCategory' in data) || data.customerCategory in validCustomerCategories) &&
+             (!('confidence' in data) || data.confidence is number) &&
+             (!('quantity' in data) || data.quantity is number) &&
+             (!('unitPrice' in data) || data.unitPrice is number) &&
+             (!('baseAmount' in data) || data.baseAmount is number);
+    }
+
+    function isValidUser(data) {
+      let validRoles = ['admin', 'user'];
+      return hasRequiredFields(['uid', 'email', 'role']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in validRoles &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100));
+    }
+
+    function isValidFOS(data) {
+      return hasRequiredFields(['name', 'employeeId']) &&
+             data.name is string && data.employeeId is string;
+    }
+
+    function isValidVisit(data) {
+      let validStatuses = ['Planned', 'Completed', 'Cancelled'];
+      return hasRequiredFields(['fosId', 'fosName', 'customerName', 'plannedDate', 'status']) &&
+             data.fosId is string &&
+             data.fosName is string &&
+             data.customerName is string &&
+             data.plannedDate is timestamp &&
+             data.status in validStatuses &&
+             (!('businessGenerated' in data) || data.businessGenerated is number) &&
+             (!('nextFollowUpDate' in data) || data.nextFollowUpDate is timestamp) &&
+             (!('nextVisitDate' in data) || data.nextVisitDate is timestamp);
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /quotations/{quotationId} {
+      // Allow public access since the login panel was removed per user request.
+      // In a production app, you should use authentication to secure this data.
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    match /fos/{fosId} {
+      allow read: if true;
+      allow create: if isValidFOS(request.resource.data);
+      allow update: if isValidFOS(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /visits/{visitId} {
+      allow read: if true;
+      allow create: if isValidVisit(request.resource.data);
+      allow update: if isValidVisit(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /masterAssets/{assetId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+  }
+}
