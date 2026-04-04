@@ -93,7 +93,7 @@ export default function App() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'reports' | 'data-management' | 'customer-wise'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [masterSearchTerm, setMasterSearchTerm] = useState('');
   const [fosList, setFosList] = useState<FOS[]>([]);
@@ -146,6 +146,7 @@ export default function App() {
   const [historyQuotation, setHistoryQuotation] = useState<Quotation | null>(null);
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
+  const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
@@ -825,6 +826,19 @@ export default function App() {
     }
   };
 
+  const confirmVisitDelete = async () => {
+    if (!visitToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'visits', visitToDelete));
+      setToast({ message: 'Visit deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'visits');
+      setToast({ message: 'Failed to delete visit', type: 'error' });
+    } finally {
+      setVisitToDelete(null);
+    }
+  };
+
   const confirmMasterDelete = async () => {
     if (!masterAssetToDelete) return;
     try {
@@ -1108,6 +1122,38 @@ export default function App() {
   const uniqueFosNames = useMemo(() => Array.from(new Set(quotations.map(q => q.fosName).filter(Boolean))), [quotations]);
   const uniqueBranches = useMemo(() => Array.from(new Set(quotations.map(q => q.branch).filter(Boolean))), [quotations]);
 
+  const allFollowUps = useMemo(() => {
+    const quoteFollowUps = quotations
+      .filter(q => q.followUpDate)
+      .map(q => ({
+        id: q.id,
+        date: q.followUpDate.toDate(),
+        fosName: q.fosName || 'N/A',
+        customer: q.customer,
+        type: 'Quotation',
+        reference: q.quoteNo,
+        lob: q.lob,
+        value: q.baseAmount,
+        original: q
+      }));
+
+    const visitFollowUps = visits
+      .filter(v => v.nextFollowUpDate)
+      .map(v => ({
+        id: v.id,
+        date: v.nextFollowUpDate!.toDate(),
+        fosName: v.fosName,
+        customer: v.customerName,
+        type: 'Visit Follow-up',
+        reference: v.purposeOfVisit || 'Visit',
+        lob: 'N/A',
+        value: 0,
+        original: v
+      }));
+
+    return [...quoteFollowUps, ...visitFollowUps].sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [quotations, visits]);
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
       {/* Sidebar */}
@@ -1175,6 +1221,13 @@ export default function App() {
             <span className="font-semibold text-sm">FOS Performance</span>
           </button>
           <button 
+            onClick={() => setActiveTab('follow-up-schedule')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'follow-up-schedule' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+          >
+            <Clock size={20} />
+            <span className="font-semibold text-sm">Follow-up Schedule</span>
+          </button>
+          <button 
             onClick={() => setActiveTab('master-sheet')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'master-sheet' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
           >
@@ -1209,6 +1262,8 @@ export default function App() {
                activeTab === 'below-1-lakh' ? 'Below 1 Lakh Quotations' :
                activeTab === 'customer-wise' ? 'Customer Wise Quotations' :
                activeTab === 'top-100' ? 'Top 100 Quotations' :
+               activeTab === 'fos-performance' ? 'FOS Performance Tracking' :
+               activeTab === 'follow-up-schedule' ? 'Follow-up Schedule' :
                activeTab === 'master-sheet' ? 'Master Asset Mapping' :
                activeTab === 'reports' ? 'Reports & Downloads' :
                'FOS Performance'}
@@ -1350,6 +1405,48 @@ export default function App() {
 
         {activeTab === 'dashboard' ? (
           <div className="space-y-8">
+            {/* Today's Follow-ups Alert */}
+            {allFollowUps.filter(fu => format(fu.date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')).length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600">
+                      <Clock size={20} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900">Today's Follow-ups</h4>
+                      <p className="text-xs text-slate-500 font-medium">Don't forget to check in with these customers</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setActiveTab('follow-up-schedule')}
+                    className="text-xs font-bold text-amber-600 hover:underline"
+                  >
+                    View All
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {allFollowUps
+                    .filter(fu => format(fu.date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd'))
+                    .slice(0, 3)
+                    .map((fu, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-amber-100 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{fu.customer}</p>
+                          <p className="text-[10px] text-slate-500 font-medium">{fu.fosName} • {fu.type}</p>
+                        </div>
+                        <button 
+                          onClick={() => fu.type === 'Quotation' ? openEditModal(fu.original as Quotation) : handleEditVisit(fu.original as FOSVisit)}
+                          className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard 
@@ -1917,16 +2014,139 @@ export default function App() {
                           </td>
                           <td className="py-4 text-sm font-bold text-slate-900 text-right">₹{(visit.businessGenerated || 0).toLocaleString('en-IN')}</td>
                           <td className="py-4 text-right">
-                            <button 
-                              onClick={() => handleEditVisit(visit)}
-                              className="p-2 text-slate-400 hover:text-[#00AEEF] hover:bg-[#00AEEF]/5 rounded-lg transition-all"
-                              title="Update Visit"
-                            >
-                              <Edit2 size={16} />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => handleEditVisit(visit)}
+                                className="p-2 text-slate-400 hover:text-[#00AEEF] hover:bg-[#00AEEF]/5 rounded-lg transition-all"
+                                title="Update Visit"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={() => setVisitToDelete(visit.id!)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete Visit"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'follow-up-schedule' ? (
+          <div className="space-y-8">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Follow-up Schedule</h3>
+                  <p className="text-slate-500 text-sm font-medium">Daily schedule for FOS follow-ups</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="bg-amber-50 text-amber-600 px-4 py-2 rounded-xl border border-amber-100 flex items-center gap-2">
+                    <Clock size={16} />
+                    <span className="text-xs font-bold uppercase tracking-wider">Today: {format(new Date(), 'dd MMM yyyy')}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-8">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="pb-4">Follow-up Date</th>
+                        <th className="pb-4">FOS Name</th>
+                        <th className="pb-4">Customer</th>
+                        <th className="pb-4">Type</th>
+                        <th className="pb-4">Reference</th>
+                        <th className="pb-4 text-right">Value</th>
+                        <th className="pb-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {allFollowUps.map((fu, idx) => {
+                        const isToday = format(fu.date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                        const isPast = fu.date < new Date(new Date().setHours(0,0,0,0));
+                        
+                        return (
+                          <tr key={`${fu.id}-${idx}`} className={`hover:bg-slate-50/50 transition-colors ${isToday ? 'bg-amber-50/30' : ''}`}>
+                            <td className="py-4">
+                              <div className="flex flex-col">
+                                <span className={`text-sm font-bold ${isPast ? 'text-red-500' : isToday ? 'text-amber-600' : 'text-slate-900'}`}>
+                                  {format(fu.date, 'dd MMM yyyy')}
+                                </span>
+                                {isToday && <span className="text-[10px] font-bold text-amber-500 uppercase">Today</span>}
+                                {isPast && <span className="text-[10px] font-bold text-red-400 uppercase">Overdue</span>}
+                              </div>
+                            </td>
+                            <td className="py-4 text-sm font-semibold text-slate-900">{fu.fosName}</td>
+                            <td className="py-4 text-sm text-slate-600">{fu.customer}</td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                fu.type === 'Quotation' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
+                              }`}>
+                                {fu.type}
+                              </span>
+                            </td>
+                            <td className="py-4 text-sm font-mono text-slate-500">{fu.reference}</td>
+                            <td className="py-4 text-sm font-bold text-slate-900 text-right">
+                              {fu.value > 0 ? `₹${fu.value.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="py-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {fu.type === 'Quotation' ? (
+                                  <>
+                                    <button 
+                                      onClick={() => openEditModal(fu.original as Quotation)}
+                                      className="p-2 text-[#00AEEF] hover:bg-[#00AEEF]/10 rounded-lg transition-all"
+                                      title="Update Quote"
+                                    >
+                                      <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDelete(fu.id!)}
+                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                      title="Delete Quote"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button 
+                                      onClick={() => handleEditVisit(fu.original as FOSVisit)}
+                                      className="p-2 text-purple-500 hover:bg-purple-50 rounded-lg transition-all"
+                                      title="Update Visit"
+                                    >
+                                      <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                      onClick={() => setVisitToDelete(fu.id!)}
+                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                      title="Delete Visit"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {allFollowUps.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                            No follow-ups scheduled at the moment.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -3420,6 +3640,51 @@ export default function App() {
                   </button>
                   <button 
                     onClick={confirmDelete}
+                    className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
+                  >
+                    Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Visit Delete Confirmation Modal */}
+      <AnimatePresence>
+        {visitToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setVisitToDelete(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Visit?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Are you sure you want to delete this visit record? This action cannot be undone.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setVisitToDelete(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmVisitDelete}
                     className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
                   >
                     Delete Now
