@@ -50,7 +50,8 @@ import {
   AlertCircle,
   CheckCircle,
   Download,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
@@ -147,6 +148,7 @@ export default function App() {
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [duplicateItems, setDuplicateItems] = useState<{ newData: any, existingId: string }[]>([]);
   const [newBulkItems, setNewBulkItems] = useState<any[]>([]);
@@ -1637,9 +1639,13 @@ export default function App() {
                     .map(([customer, data]) => {
                       const d = data as { count: number, value: number };
                       return (
-                        <tr key={customer} className="hover:bg-slate-50/50 transition-colors group">
+                        <tr 
+                          key={customer} 
+                          className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                          onClick={() => setSelectedCustomer(customer)}
+                        >
                           <td className="px-6 py-4">
-                            <p className="font-semibold text-slate-900 text-sm">{customer}</p>
+                            <p className="font-semibold text-slate-900 text-sm group-hover:text-[#00AEEF] transition-colors">{customer}</p>
                           </td>
                           <td className="px-6 py-4">
                             <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">
@@ -1667,11 +1673,15 @@ export default function App() {
                 </h3>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                   {analytics.top100ValueQuotes.map((q, i) => (
-                    <div key={q.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                    <div 
+                      key={q.id} 
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors group"
+                      onClick={() => setSelectedCustomer(q.customer)}
+                    >
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-slate-400 w-6">#{i+1}</span>
                         <div>
-                          <p className="text-sm font-bold text-slate-900">{q.customer}</p>
+                          <p className="text-sm font-bold text-slate-900 group-hover:text-[#00AEEF] transition-colors">{q.customer}</p>
                           <p className="text-[10px] text-slate-500">{q.quoteNo}</p>
                         </div>
                       </div>
@@ -1688,10 +1698,14 @@ export default function App() {
                 </h3>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                   {analytics.top100CustomerQuotes.map((c, i) => (
-                    <div key={c.name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                    <div 
+                      key={c.name} 
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors group"
+                      onClick={() => setSelectedCustomer(c.name)}
+                    >
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-slate-400 w-6">#{i+1}</span>
-                        <p className="text-sm font-bold text-slate-900">{c.name}</p>
+                        <p className="text-sm font-bold text-slate-900 group-hover:text-[#00AEEF] transition-colors">{c.name}</p>
                       </div>
                       <p className="text-sm font-black text-[#8DC63F]">₹{c.value.toLocaleString('en-IN')}</p>
                     </div>
@@ -1708,11 +1722,15 @@ export default function App() {
                   {analytics.top100AgeingQuotes.map((q, i) => {
                     const days = q.createdAt ? differenceInDays(new Date(), q.createdAt.toDate()) : 0;
                     return (
-                      <div key={q.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                      <div 
+                        key={q.id} 
+                        className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => setSelectedCustomer(q.customer)}
+                      >
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-bold text-slate-400 w-6">#{i+1}</span>
                           <div>
-                            <p className="text-sm font-bold text-slate-900">{q.customer}</p>
+                            <p className="text-sm font-bold text-slate-900 group-hover:text-[#F7941E] transition-colors">{q.customer}</p>
                             <p className="text-[10px] text-slate-500">{q.quoteNo}</p>
                           </div>
                         </div>
@@ -3375,6 +3393,83 @@ export default function App() {
 
       {/* Toast Notification */}
       <AnimatePresence>
+        {/* Customer Quotes Modal */}
+        {selectedCustomer && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">{selectedCustomer}</h3>
+                  <p className="text-slate-500 text-sm font-medium">All quotations for this customer</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedCustomer(null)}
+                  className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="pb-4">Quote No</th>
+                        <th className="pb-4">Item</th>
+                        <th className="pb-4">Created Date</th>
+                        <th className="pb-4">Status</th>
+                        <th className="pb-4">LOB</th>
+                        <th className="pb-4 text-right">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {quotations
+                        .filter(q => q.customer === selectedCustomer)
+                        .sort((a, b) => {
+                          const dateA = a.quoteLineCreatedDate?.toDate().getTime() || 0;
+                          const dateB = b.quoteLineCreatedDate?.toDate().getTime() || 0;
+                          return dateB - dateA;
+                        })
+                        .map((q) => (
+                          <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
+                            <td className="py-4 text-sm text-slate-600">{q.item}</td>
+                            <td className="py-4 text-sm text-slate-500">
+                              {q.quoteLineCreatedDate ? format(q.quoteLineCreatedDate.toDate(), 'dd MMM yyyy') : '-'}
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
+                                {q.status}
+                              </span>
+                            </td>
+                            <td className="py-4 text-xs font-medium text-slate-500">{q.lob}</td>
+                            <td className="py-4 text-sm font-bold text-slate-900 text-right">
+                              ₹{(q.baseAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                <button 
+                  onClick={() => setSelectedCustomer(null)}
+                  className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {toast && (
           <motion.div 
             initial={{ opacity: 0, y: 50, x: '-50%' }}
