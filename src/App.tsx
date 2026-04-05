@@ -156,6 +156,7 @@ export default function App() {
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [masterFile, setMasterFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
 
   const [fosFormData, setFosFormData] = useState({
     name: '',
@@ -235,6 +236,13 @@ export default function App() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowWelcome(false);
+    }, 3500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Test connection
@@ -1156,6 +1164,52 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
+      <AnimatePresence>
+        {showWelcome && (
+          <motion.div
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1 }}
+            className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="w-32 h-32 mb-8 bg-white p-4 rounded-3xl shadow-2xl"
+            >
+              <EthenLogo />
+            </motion.div>
+            <motion.h1
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.8 }}
+              className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-4"
+            >
+              Welcome to <span className="text-[#00AEEF]">Ethen Group</span>
+            </motion.h1>
+            <motion.p
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.5, duration: 0.8 }}
+              className="text-xl md:text-2xl text-slate-400 font-medium mb-8"
+            >
+              Quote Dashboard
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1, duration: 1 }}
+              className="absolute bottom-12"
+            >
+              <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.2em]">
+                by Fawwaz Creation
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col fixed h-full z-30">
         <div className="p-6 border-b border-slate-800">
@@ -1249,6 +1303,12 @@ export default function App() {
             <span className="font-semibold text-sm">Data Management</span>
           </button>
         </nav>
+
+        <div className="p-6 border-t border-slate-800 mt-auto">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">
+            by Fawwaz Creations
+          </p>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -1431,8 +1491,14 @@ export default function App() {
                     .slice(0, 3)
                     .map((fu, idx) => (
                       <div key={idx} className="bg-white p-4 rounded-xl border border-amber-100 shadow-sm flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-bold text-slate-900">{fu.customer}</p>
+                        <div className="flex-1">
+                          <button 
+                            onClick={() => setSelectedCustomer(fu.customer)}
+                            className="text-xs font-bold text-slate-900 hover:text-[#00AEEF] transition-colors text-left block w-full truncate"
+                            title="View all quotations for this customer"
+                          >
+                            {fu.customer}
+                          </button>
                           <p className="text-[10px] text-slate-500 font-medium">{fu.fosName} • {fu.type}</p>
                         </div>
                         <button 
@@ -1724,7 +1790,13 @@ export default function App() {
                           <p className="font-semibold text-slate-900 text-sm">{q.quoteNo}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-900 text-sm">{q.customer}</p>
+                          <button 
+                            onClick={() => setSelectedCustomer(q.customer)}
+                            className="font-semibold text-slate-900 text-sm hover:text-[#00AEEF] transition-colors text-left"
+                            title="View all quotations for this customer"
+                          >
+                            {q.customer}
+                          </button>
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
@@ -1779,7 +1851,13 @@ export default function App() {
                           <p className="font-semibold text-slate-900 text-sm">{q.quoteNo}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-900 text-sm">{q.customer}</p>
+                          <button 
+                            onClick={() => setSelectedCustomer(q.customer)}
+                            className="font-semibold text-slate-900 text-sm hover:text-[#00AEEF] transition-colors text-left"
+                            title="View all quotations for this customer"
+                          >
+                            {q.customer}
+                          </button>
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
@@ -2002,7 +2080,15 @@ export default function App() {
                         <tr key={visit.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-4 text-sm text-slate-600">{visit.plannedDate ? format(visit.plannedDate.toDate(), 'dd MMM yyyy') : '-'}</td>
                           <td className="py-4 text-sm font-semibold text-slate-900">{visit.fosName}</td>
-                          <td className="py-4 text-sm text-slate-600">{visit.customerName}</td>
+                          <td className="py-4">
+                            <button 
+                              onClick={() => setSelectedCustomer(visit.customerName)}
+                              className="text-sm font-medium text-slate-600 hover:text-[#00AEEF] transition-colors text-left"
+                              title="View all quotations for this customer"
+                            >
+                              {visit.customerName}
+                            </button>
+                          </td>
                           <td className="py-4">
                             <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${
                               visit.status === 'Completed' ? 'bg-green-100 text-green-600' : 
@@ -2086,7 +2172,15 @@ export default function App() {
                               </div>
                             </td>
                             <td className="py-4 text-sm font-semibold text-slate-900">{fu.fosName}</td>
-                            <td className="py-4 text-sm text-slate-600">{fu.customer}</td>
+                            <td className="py-4">
+                              <button 
+                                onClick={() => setSelectedCustomer(fu.customer)}
+                                className="text-sm font-medium text-slate-600 hover:text-[#00AEEF] transition-colors text-left"
+                                title="View all quotations for this customer"
+                              >
+                                {fu.customer}
+                              </button>
+                            </td>
                             <td className="py-4">
                               <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
                                 fu.type === 'Quotation' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
@@ -2567,7 +2661,13 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-semibold text-slate-900 text-sm">{q.account}</p>
-                        <p className="text-[10px] font-medium text-slate-400 mt-0.5">{q.customer}</p>
+                        <button 
+                          onClick={() => setSelectedCustomer(q.customer)}
+                          className="text-[10px] font-medium text-slate-400 hover:text-[#00AEEF] transition-colors mt-0.5"
+                          title="View all quotations for this customer"
+                        >
+                          {q.customer}
+                        </button>
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{q.customerCategory}</span>
