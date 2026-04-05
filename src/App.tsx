@@ -70,6 +70,20 @@ const EthenLogo = ({ className = "w-full h-full" }: { className?: string }) => (
 
 const COLORS = ['#00AEEF', '#8DC63F', '#F7941E', '#64748b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316'];
 
+const standardizeValue = (val: string): string => {
+  if (!val) return '';
+  const trimmed = val.trim();
+  const upper = trimmed.toUpperCase().replace(/\s/g, '');
+  
+  if (upper === 'NON-AMC' || upper === 'NONAMC') return 'Non - AMC';
+  if (upper === 'AMC') return 'AMC';
+  if (upper === 'PAID') return 'Paid';
+  if (upper === 'NEPI') return 'NEPI';
+  if (upper === 'CAMC') return 'CAMC';
+  
+  return trimmed;
+};
+
 const formatExpectedMonth = (value: any) => {
   if (!value) return 'N/A';
   try {
@@ -287,48 +301,48 @@ export default function App() {
           try {
             const quantity = Number(row['Quantity']) || 1;
             const unitPrice = Number(row['Unit Price']) || 0;
-            const quoteNo = row['Quote No.'] || '';
+            const quoteNo = standardizeValue(row['Quote No.'] || '');
             if (!quoteNo) return;
 
-            const assetNo = row['Asset'] || '';
-            let customerCategory = (row['Customer Category'] || 'Paid') as Quotation['customerCategory'];
+            const assetNo = standardizeValue(row['Asset'] || '');
+            let customerCategory = standardizeValue(row['Customer Category'] || 'Paid') as Quotation['customerCategory'];
 
             // Lookup in masterAssets for automatic category suggestion
             if (assetNo) {
-              const mapping = masterAssets.find(m => m.assetNo === assetNo);
+              const mapping = masterAssets.find(m => standardizeValue(m.assetNo) === assetNo);
               if (mapping) {
-                customerCategory = mapping.category as Quotation['customerCategory'];
+                customerCategory = standardizeValue(mapping.category) as Quotation['customerCategory'];
               }
             }
 
             uniqueCsvItems.set(quoteNo, {
               quoteNo,
-              opportunityNumber: row['Opportunity Number'] || '',
+              opportunityNumber: standardizeValue(row['Opportunity Number'] || ''),
               quoteLineCreatedDate: Timestamp.fromDate(safeDate(row['Quote Line: Created Date'])),
-              account: row['Account'] || '',
-              item: row['Item'] || '',
-              itemDescription: row['Item Description'] || '',
+              account: standardizeValue(row['Account'] || ''),
+              item: standardizeValue(row['Item'] || ''),
+              itemDescription: standardizeValue(row['Item Description'] || ''),
               quantity: quantity,
               unitPrice: unitPrice,
               baseAmount: quantity * unitPrice,
-              status: row['Status'] || 'Submitted',
-              saleOrder: row['Sale Order'] || '',
-              branch: row['Branch'] || '',
-              quoteLineCreatedBy: row['Quote Line: Created By'] || '',
-              remarks: row['Remarks'] || '',
+              status: standardizeValue(row['Status'] || 'Submitted'),
+              saleOrder: standardizeValue(row['Sale Order'] || ''),
+              branch: standardizeValue(row['Branch'] || ''),
+              quoteLineCreatedBy: standardizeValue(row['Quote Line: Created By'] || ''),
+              remarks: standardizeValue(row['Remarks'] || ''),
               asset: assetNo,
-              fosName: row['FOS Name'] || '',
-              billingAddress: row['Billing Address'] || '',
-              shippingAddress: row['Shipping Address'] || '',
-              zone: row['Zone'] || 'Central',
-              customer: row['Customer'] || '',
+              fosName: standardizeValue(row['FOS Name'] || ''),
+              billingAddress: standardizeValue(row['Billing Address'] || ''),
+              shippingAddress: standardizeValue(row['Shipping Address'] || ''),
+              zone: standardizeValue(row['Zone'] || 'Central'),
+              customer: standardizeValue(row['Customer'] || ''),
               confidence: Number(row['Confidence']) || 10,
               visitDate: Timestamp.fromDate(safeDate(row['Visit Date'])),
-              visitOutcome: row['Visit Outcome'] || '',
+              visitOutcome: standardizeValue(row['Visit Outcome'] || ''),
               followUpDate: Timestamp.fromDate(safeDate(row['Follow up'])),
-              lob: (row['LOB'] || 'Service') as Quotation['lob'],
+              lob: standardizeValue(row['LOB'] || 'Service') as Quotation['lob'],
               customerCategory: customerCategory,
-              expectedMonth: row['Expected Month'] || format(new Date(), 'yyyy-MM'),
+              expectedMonth: standardizeValue(row['Expected Month'] || format(new Date(), 'yyyy-MM')),
               uid: 'guest',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -404,8 +418,8 @@ export default function App() {
       complete: async (results) => {
         try {
           const promises = results.data.map((row: any) => {
-            const assetNo = row['Asset No.'] || row['Asset No'] || row['assetNo'] || '';
-            const category = row['Category'] || row['category'] || '';
+            const assetNo = standardizeValue(row['Asset No.'] || row['Asset No'] || row['assetNo'] || '');
+            const category = standardizeValue(row['Category'] || row['category'] || '');
             if (!assetNo || !category) return null;
             
             return addDoc(collection(db, 'masterAssets'), {
@@ -503,6 +517,26 @@ export default function App() {
     
     const data = {
       ...formData,
+      quoteNo: standardizeValue(formData.quoteNo),
+      opportunityNumber: standardizeValue(formData.opportunityNumber),
+      account: standardizeValue(formData.account),
+      item: standardizeValue(formData.item),
+      itemDescription: standardizeValue(formData.itemDescription),
+      status: standardizeValue(formData.status),
+      saleOrder: standardizeValue(formData.saleOrder),
+      branch: standardizeValue(formData.branch),
+      quoteLineCreatedBy: standardizeValue(formData.quoteLineCreatedBy),
+      remarks: standardizeValue(formData.remarks),
+      asset: standardizeValue(formData.asset),
+      fosName: standardizeValue(formData.fosName),
+      billingAddress: standardizeValue(formData.billingAddress),
+      shippingAddress: standardizeValue(formData.shippingAddress),
+      zone: standardizeValue(formData.zone),
+      customer: standardizeValue(formData.customer),
+      visitOutcome: standardizeValue(formData.visitOutcome),
+      lob: standardizeValue(formData.lob) as Quotation['lob'],
+      customerCategory: standardizeValue(formData.customerCategory) as Quotation['customerCategory'],
+      expectedMonth: standardizeValue(formData.expectedMonth),
       quantity: Number(formData.quantity),
       unitPrice: Number(formData.unitPrice),
       baseAmount: Number(formData.quantity) * Number(formData.unitPrice),
@@ -896,12 +930,19 @@ export default function App() {
   // Analytics Calculations
   const analytics = useMemo(() => {
     const filteredForAnalytics = quotations.filter(q => {
-      const matchesLob = lobFilter.length === 0 || lobFilter.includes(q.lob);
-      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(q.status);
-      const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(q.zone);
-      const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(q.customerCategory);
-      const matchesFos = fosFilter.length === 0 || (q.fosName && fosFilter.includes(q.fosName));
-      const matchesBranch = branchFilter.length === 0 || (q.branch && branchFilter.includes(q.branch));
+      const qLob = standardizeValue(q.lob);
+      const qStatus = standardizeValue(q.status);
+      const qZone = standardizeValue(q.zone);
+      const qCategory = standardizeValue(q.customerCategory);
+      const qFos = standardizeValue(q.fosName);
+      const qBranch = standardizeValue(q.branch);
+
+      const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
+      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
+      const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
+      const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
+      const matchesFos = fosFilter.length === 0 || (qFos && fosFilter.includes(qFos));
+      const matchesBranch = branchFilter.length === 0 || (qBranch && branchFilter.includes(qBranch));
       
       let matchesDate = true;
       if (dateRange.from || dateRange.to) {
@@ -922,24 +963,28 @@ export default function App() {
     });
 
     const lobWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.lob] = acc[q.lob] || { count: 0, value: 0 };
-      acc[q.lob].count += 1;
-      acc[q.lob].value += (q.baseAmount || 0);
+      const lob = standardizeValue(q.lob);
+      acc[lob] = acc[lob] || { count: 0, value: 0 };
+      acc[lob].count += 1;
+      acc[lob].value += (q.baseAmount || 0);
       return acc;
     }, {} as Record<string, { count: number, value: number }>);
 
     const statusWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.status] = (acc[q.status] || 0) + 1;
+      const status = standardizeValue(q.status);
+      acc[status] = (acc[status] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
     const zoneWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.zone] = (acc[q.zone] || 0) + 1;
+      const zone = standardizeValue(q.zone);
+      acc[zone] = (acc[zone] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
     const fosWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.fosName] = (acc[q.fosName] || 0) + 1;
+      const fos = standardizeValue(q.fosName);
+      acc[fos] = (acc[fos] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
@@ -967,12 +1012,14 @@ export default function App() {
     });
 
     const followUpByFos = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.fosName] = (acc[q.fosName] || 0) + (q.followUps?.length || 0);
+      const fos = standardizeValue(q.fosName);
+      acc[fos] = (acc[fos] || 0) + (q.followUps?.length || 0);
       return acc;
     }, {} as Record<string, number>);
     
     const customerCategoryWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.customerCategory] = (acc[q.customerCategory] || 0) + (q.baseAmount || 0);
+      const category = standardizeValue(q.customerCategory);
+      acc[category] = (acc[category] || 0) + (q.baseAmount || 0);
       return acc;
     }, {} as Record<string, number>);
 
@@ -1009,7 +1056,8 @@ export default function App() {
       .slice(0, 100);
 
     const customerWiseValue = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.customer] = (acc[q.customer] || 0) + (q.baseAmount || 0);
+      const customer = standardizeValue(q.customer);
+      acc[customer] = (acc[customer] || 0) + (q.baseAmount || 0);
       return acc;
     }, {} as Record<string, number>);
 
@@ -1095,18 +1143,28 @@ export default function App() {
 
   const filteredQuotations = useMemo(() => {
     return quotations.filter(q => {
-    const matchesSearch = (q.customer || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (q.account || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (q.fosName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (q.lob || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (q.quoteNo || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const qCustomer = standardizeValue(q.customer);
+    const qAccount = standardizeValue(q.account);
+    const qFos = standardizeValue(q.fosName);
+    const qLob = standardizeValue(q.lob);
+    const qQuoteNo = standardizeValue(q.quoteNo);
+    const qStatus = standardizeValue(q.status);
+    const qZone = standardizeValue(q.zone);
+    const qCategory = standardizeValue(q.customerCategory);
+    const qBranch = standardizeValue(q.branch);
+
+    const matchesSearch = qCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qAccount.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qFos.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qLob.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qQuoteNo.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesLob = lobFilter.length === 0 || lobFilter.includes(q.lob);
-    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(q.status);
-    const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(q.zone);
-    const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(q.customerCategory);
-    const matchesFos = fosFilter.length === 0 || (q.fosName && fosFilter.includes(q.fosName));
-    const matchesBranch = branchFilter.length === 0 || (q.branch && branchFilter.includes(q.branch));
+    const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
+    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
+    const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
+    const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
+    const matchesFos = fosFilter.length === 0 || (qFos && fosFilter.includes(qFos));
+    const matchesBranch = branchFilter.length === 0 || (qBranch && branchFilter.includes(qBranch));
     
     let matchesDate = true;
     if (dateRange.from || dateRange.to) {
@@ -1397,7 +1455,7 @@ export default function App() {
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Category Filter</label>
               <MultiSelect 
-                options={['AMC', 'NON - AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC']}
+                options={['AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC']}
                 selected={categoryFilter}
                 onChange={setCategoryFilter}
                 placeholder="Select Categories..."
