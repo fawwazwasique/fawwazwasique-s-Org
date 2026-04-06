@@ -114,6 +114,16 @@ const formatDateDisplay = (date: any, formatStr: string = 'dd MMM yyyy') => {
   return '#N/A';
 };
 
+const formatIndianCurrency = (value: number) => {
+  return `₹${value.toLocaleString('en-IN')}`;
+};
+
+const formatIndianAxis = (value: number) => {
+  if (value >= 10000000) return `₹${(value / 10000000).toFixed(1)}Cr`;
+  if (value >= 100000) return `₹${(value / 100000).toFixed(1)}L`;
+  return `₹${value.toLocaleString('en-IN')}`;
+};
+
 export default function App() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1674,8 +1684,17 @@ export default function App() {
                   <BarChart data={analytics.lobData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                      tickFormatter={formatIndianAxis}
+                    />
+                    <Tooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                    />
                     <Bar dataKey="value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1780,7 +1799,7 @@ export default function App() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Value']}
+                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
@@ -1797,11 +1816,11 @@ export default function App() {
                       axisLine={false} 
                       tickLine={false} 
                       tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={(value) => `₹${(value / 100000).toFixed(1)}L`}
+                      tickFormatter={formatIndianAxis}
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Value']}
+                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Bar dataKey="value" fill="#ec4899" radius={[4, 4, 0, 0]} />
@@ -1818,12 +1837,12 @@ export default function App() {
                       axisLine={false} 
                       tickLine={false} 
                       tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={(value) => `₹${(value / 100000).toFixed(1)}L`}
+                      tickFormatter={formatIndianAxis}
                     />
                     <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Value']}
+                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Bar dataKey="value" fill="#8DC63F" radius={[0, 4, 4, 0]} />
@@ -2979,12 +2998,18 @@ export default function App() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Status</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                    <select 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    />
+                    >
+                      <option value="Submitted">Submitted</option>
+                      <option value="Converted">Converted</option>
+                      <option value="Customer Declined">Customer Declined</option>
+                      <option value="Cancelled">Cancelled</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Pending">Pending</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Sale Order</label>
@@ -4144,7 +4169,11 @@ function ChartWrapper({ title, children }: { title: string, children: React.Reac
 function getStatusColor(status: Quotation['status']) {
   switch (status) {
     case 'Submitted': return 'bg-blue-50 text-blue-600';
+    case 'Converted': return 'bg-emerald-50 text-emerald-600';
     case 'Customer Declined': return 'bg-red-50 text-red-600';
+    case 'Cancelled': return 'bg-slate-100 text-slate-600';
+    case 'In Progress': return 'bg-amber-50 text-amber-600';
+    case 'Pending': return 'bg-orange-50 text-orange-600';
     default: return 'bg-neutral-100 text-neutral-600';
   }
 }
