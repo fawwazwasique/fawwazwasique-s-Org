@@ -306,10 +306,21 @@ export default function App() {
       skipEmptyLines: true,
       complete: async (results) => {
         // Deduplicate CSV items internally first (last one wins)
+        const getValue = (row: any, ...keys: string[]): any => {
+          for (const key of keys) {
+            if (row[key] !== undefined && row[key] !== null) return row[key];
+            const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const actualKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedKey);
+            if (actualKey) return row[actualKey];
+          }
+          return undefined;
+        };
+
         const parseNumber = (val: any): number => {
           if (val === undefined || val === null || val === '') return 0;
-          const str = String(val).replace(/,/g, '').trim();
-          const num = Number(str);
+          // Remove currency symbols and thousands separators, keep decimal point and minus sign
+          const str = String(val).replace(/[^\d.-]/g, '').trim();
+          const num = parseFloat(str);
           return isNaN(num) ? 0 : num;
         };
 
@@ -327,13 +338,13 @@ export default function App() {
         const uniqueCsvItems = new Map<string, any>();
         results.data.forEach((row: any) => {
           try {
-            const quantity = parseNumber(row['Quantity']) || 1;
-            const unitPrice = parseNumber(row['Unit Price']);
-            const quoteNo = standardizeValue(row['Quote No.'] || '');
+            const quantity = parseNumber(getValue(row, 'Quantity')) || 1;
+            const unitPrice = parseNumber(getValue(row, 'Unit Price', 'UnitPrice', 'Unit Cost'));
+            const quoteNo = standardizeValue(getValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
             if (!quoteNo) return;
 
-            const assetNo = standardizeWithNA(row['Asset'] || '');
-            let customerCategory = standardizeValue(row['Customer Category'] || 'Paid') as Quotation['customerCategory'];
+            const assetNo = standardizeWithNA(getValue(row, 'Asset', 'Asset No', 'AssetNo') || '');
+            let customerCategory = standardizeValue(getValue(row, 'Customer Category', 'Category') || 'Paid') as Quotation['customerCategory'];
 
             // Lookup in masterAssets for automatic category suggestion
             if (assetNo && assetNo !== '#N/A') {
@@ -343,37 +354,37 @@ export default function App() {
               }
             }
 
-            const rawConfidence = standardizeValue(row['Confidence'] || '');
+            const rawConfidence = standardizeValue(getValue(row, 'Confidence', 'Confidence Level') || '');
             const confidence = rawConfidence === '' ? 10 : parseNumber(rawConfidence);
 
             uniqueCsvItems.set(quoteNo, {
               quoteNo,
-              opportunityNumber: standardizeWithNA(row['Opportunity Number'] || ''),
-              quoteLineCreatedDate: parseDateOrNA(row['Quote Line: Created Date']),
-              account: standardizeWithNA(row['Account'] || ''),
-              item: standardizeWithNA(row['Item'] || ''),
-              itemDescription: standardizeWithNA(row['Item Description'] || ''),
+              opportunityNumber: standardizeWithNA(getValue(row, 'Opportunity Number', 'OpportunityNo') || ''),
+              quoteLineCreatedDate: parseDateOrNA(getValue(row, 'Quote Line: Created Date', 'Created Date', 'Date')),
+              account: standardizeWithNA(getValue(row, 'Account') || ''),
+              item: standardizeWithNA(getValue(row, 'Item') || ''),
+              itemDescription: standardizeWithNA(getValue(row, 'Item Description', 'Description') || ''),
               quantity: quantity,
               unitPrice: unitPrice,
               baseAmount: quantity * unitPrice,
-              status: standardizeWithNA(row['Status'] || 'Submitted'),
-              saleOrder: standardizeWithNA(row['Sale Order'] || ''),
-              branch: standardizeWithNA(row['Branch'] || ''),
-              quoteLineCreatedBy: standardizeWithNA(row['Quote Line: Created By'] || ''),
-              remarks: standardizeWithNA(row['Remarks'] || ''),
+              status: standardizeWithNA(getValue(row, 'Status') || 'Submitted'),
+              saleOrder: standardizeWithNA(getValue(row, 'Sale Order', 'SaleOrder') || ''),
+              branch: standardizeWithNA(getValue(row, 'Branch') || ''),
+              quoteLineCreatedBy: standardizeWithNA(getValue(row, 'Quote Line: Created By', 'Created By') || ''),
+              remarks: standardizeWithNA(getValue(row, 'Remarks') || ''),
               asset: assetNo,
-              fosName: standardizeWithNA(row['FOS Name'] || ''),
-              billingAddress: standardizeWithNA(row['Billing Address'] || ''),
-              shippingAddress: standardizeWithNA(row['Shipping Address'] || ''),
-              zone: standardizeWithNA(row['Zone'] || 'Central'),
-              customer: standardizeWithNA(row['Customer'] || ''),
+              fosName: standardizeWithNA(getValue(row, 'FOS Name', 'FOS') || ''),
+              billingAddress: standardizeWithNA(getValue(row, 'Billing Address') || ''),
+              shippingAddress: standardizeWithNA(getValue(row, 'Shipping Address') || ''),
+              zone: standardizeWithNA(getValue(row, 'Zone') || 'Central'),
+              customer: standardizeWithNA(getValue(row, 'Customer') || ''),
               confidence: confidence,
-              visitDate: parseDateOrNA(row['Visit Date']),
-              visitOutcome: standardizeWithNA(row['Visit Outcome'] || ''),
-              followUpDate: parseDateOrNA(row['Follow up']),
-              lob: standardizeValue(row['LOB'] || 'Service') as Quotation['lob'],
+              visitDate: parseDateOrNA(getValue(row, 'Visit Date')),
+              visitOutcome: standardizeWithNA(getValue(row, 'Visit Outcome') || ''),
+              followUpDate: parseDateOrNA(getValue(row, 'Follow up', 'Follow up Date')),
+              lob: standardizeValue(getValue(row, 'LOB') || 'Service') as Quotation['lob'],
               customerCategory: customerCategory,
-              expectedMonth: standardizeWithNA(row['Expected Month'] || ''),
+              expectedMonth: standardizeWithNA(getValue(row, 'Expected Month') || ''),
               uid: 'guest',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -951,9 +962,9 @@ export default function App() {
       zone: q.zone || 'Central',
       customer: q.customer || '',
       confidence: q.confidence || 50,
-      visitDate: q.visitDate && typeof q.visitDate !== 'string' ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      visitDate: q.visitDate && typeof q.visitDate !== 'string' ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : '',
       visitOutcome: q.visitOutcome || '',
-      followUpDate: q.followUpDate && typeof q.followUpDate !== 'string' ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      followUpDate: q.followUpDate && typeof q.followUpDate !== 'string' ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : '',
       lob: q.lob || 'Service',
       customerCategory: q.customerCategory || 'Paid',
       expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM')
@@ -1037,8 +1048,8 @@ export default function App() {
     };
 
     filteredForAnalytics.forEach(q => {
-      if (!q.createdAt || typeof q.createdAt === 'string') return;
-      const days = differenceInDays(new Date(), q.createdAt.toDate());
+      if (!q.quoteLineCreatedDate || typeof q.quoteLineCreatedDate === 'string') return;
+      const days = differenceInDays(new Date(), q.quoteLineCreatedDate.toDate());
       if (days <= 15) ageing['0-15']++;
       else if (days <= 30) ageing['16-30']++;
       else if (days <= 45) ageing['31-45']++;
@@ -1102,8 +1113,8 @@ export default function App() {
       .slice(0, 100);
 
     const top100AgeingQuotes = [...filteredForAnalytics]
-      .filter(q => q.createdAt && typeof q.createdAt !== 'string')
-      .sort((a, b) => (a.createdAt as Timestamp).toDate().getTime() - (b.createdAt as Timestamp).toDate().getTime())
+      .filter(q => q.quoteLineCreatedDate && typeof q.quoteLineCreatedDate !== 'string')
+      .sort((a, b) => (a.quoteLineCreatedDate as Timestamp).toDate().getTime() - (b.quoteLineCreatedDate as Timestamp).toDate().getTime())
       .slice(0, 100);
 
     return {
@@ -2826,9 +2837,9 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${q.createdAt && typeof q.createdAt !== 'string' ? getAgeingColor(differenceInDays(new Date(), q.createdAt.toDate())) : 'bg-slate-300'}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${q.quoteLineCreatedDate && typeof q.quoteLineCreatedDate !== 'string' ? getAgeingColor(differenceInDays(new Date(), q.quoteLineCreatedDate.toDate())) : 'bg-slate-300'}`} />
                           <span className="text-xs font-semibold text-slate-600">
-                            {q.createdAt && typeof q.createdAt !== 'string' ? `${differenceInDays(new Date(), q.createdAt.toDate())}d` : '#N/A'}
+                            {q.quoteLineCreatedDate && typeof q.quoteLineCreatedDate !== 'string' ? `${differenceInDays(new Date(), q.quoteLineCreatedDate.toDate())}d` : '#N/A'}
                           </span>
                         </div>
                       </td>
