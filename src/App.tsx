@@ -86,7 +86,7 @@ const standardizeValue = (val: string): string => {
 };
 
 const formatExpectedMonth = (value: any) => {
-  if (!value) return 'N/A';
+  if (!value || value === '#N/A') return '#N/A';
   try {
     let dateStr = value;
     if (typeof value !== 'string' && typeof value?.toDate === 'function') {
@@ -102,6 +102,15 @@ const formatExpectedMonth = (value: any) => {
   } catch (e) {
     return String(value);
   }
+};
+
+const formatDateDisplay = (date: any, formatStr: string = 'dd MMM yyyy') => {
+  if (!date || date === '#N/A') return '#N/A';
+  if (typeof date === 'string') return date;
+  if (date && typeof date.toDate === 'function') {
+    return format(date.toDate(), formatStr);
+  }
+  return '#N/A';
 };
 
 export default function App() {
@@ -297,19 +306,37 @@ export default function App() {
       skipEmptyLines: true,
       complete: async (results) => {
         // Deduplicate CSV items internally first (last one wins)
+        const parseNumber = (val: any): number => {
+          if (val === undefined || val === null || val === '') return 0;
+          const str = String(val).replace(/,/g, '').trim();
+          const num = Number(str);
+          return isNaN(num) ? 0 : num;
+        };
+
+        const standardizeWithNA = (val: string): string => {
+          const std = standardizeValue(val);
+          return std === '' ? '#N/A' : std;
+        };
+
+        const parseDateOrNA = (dateStr: string) => {
+          if (!dateStr || standardizeValue(dateStr) === '') return '#N/A';
+          const d = new Date(dateStr);
+          return isNaN(d.getTime()) ? '#N/A' : Timestamp.fromDate(d);
+        };
+
         const uniqueCsvItems = new Map<string, any>();
         results.data.forEach((row: any) => {
           try {
-            const quantity = Number(row['Quantity']) || 1;
-            const unitPrice = Number(row['Unit Price']) || 0;
+            const quantity = parseNumber(row['Quantity']) || 1;
+            const unitPrice = parseNumber(row['Unit Price']);
             const quoteNo = standardizeValue(row['Quote No.'] || '');
             if (!quoteNo) return;
 
-            const assetNo = standardizeValue(row['Asset'] || '');
+            const assetNo = standardizeWithNA(row['Asset'] || '');
             let customerCategory = standardizeValue(row['Customer Category'] || 'Paid') as Quotation['customerCategory'];
 
             // Lookup in masterAssets for automatic category suggestion
-            if (assetNo) {
+            if (assetNo && assetNo !== '#N/A') {
               const mapping = masterAssets.find(m => standardizeValue(m.assetNo) === assetNo);
               if (mapping) {
                 customerCategory = standardizeValue(mapping.category) as Quotation['customerCategory'];
@@ -317,44 +344,44 @@ export default function App() {
             }
 
             const rawConfidence = standardizeValue(row['Confidence'] || '');
-            const confidence = rawConfidence === '' ? null : Number(rawConfidence);
+            const confidence = rawConfidence === '' ? 10 : parseNumber(rawConfidence);
 
             uniqueCsvItems.set(quoteNo, {
               quoteNo,
-              opportunityNumber: standardizeValue(row['Opportunity Number'] || ''),
-              quoteLineCreatedDate: Timestamp.fromDate(safeDate(row['Quote Line: Created Date'])),
-              account: standardizeValue(row['Account'] || ''),
-              item: standardizeValue(row['Item'] || ''),
-              itemDescription: standardizeValue(row['Item Description'] || ''),
+              opportunityNumber: standardizeWithNA(row['Opportunity Number'] || ''),
+              quoteLineCreatedDate: parseDateOrNA(row['Quote Line: Created Date']),
+              account: standardizeWithNA(row['Account'] || ''),
+              item: standardizeWithNA(row['Item'] || ''),
+              itemDescription: standardizeWithNA(row['Item Description'] || ''),
               quantity: quantity,
               unitPrice: unitPrice,
               baseAmount: quantity * unitPrice,
-              status: standardizeValue(row['Status'] || 'Submitted'),
-              saleOrder: standardizeValue(row['Sale Order'] || ''),
-              branch: standardizeValue(row['Branch'] || ''),
-              quoteLineCreatedBy: standardizeValue(row['Quote Line: Created By'] || ''),
-              remarks: standardizeValue(row['Remarks'] || ''),
+              status: standardizeWithNA(row['Status'] || 'Submitted'),
+              saleOrder: standardizeWithNA(row['Sale Order'] || ''),
+              branch: standardizeWithNA(row['Branch'] || ''),
+              quoteLineCreatedBy: standardizeWithNA(row['Quote Line: Created By'] || ''),
+              remarks: standardizeWithNA(row['Remarks'] || ''),
               asset: assetNo,
-              fosName: standardizeValue(row['FOS Name'] || ''),
-              billingAddress: standardizeValue(row['Billing Address'] || ''),
-              shippingAddress: standardizeValue(row['Shipping Address'] || ''),
-              zone: standardizeValue(row['Zone'] || 'Central'),
-              customer: standardizeValue(row['Customer'] || ''),
+              fosName: standardizeWithNA(row['FOS Name'] || ''),
+              billingAddress: standardizeWithNA(row['Billing Address'] || ''),
+              shippingAddress: standardizeWithNA(row['Shipping Address'] || ''),
+              zone: standardizeWithNA(row['Zone'] || 'Central'),
+              customer: standardizeWithNA(row['Customer'] || ''),
               confidence: confidence,
-              visitDate: Timestamp.fromDate(safeDate(row['Visit Date'])),
-              visitOutcome: standardizeValue(row['Visit Outcome'] || ''),
-              followUpDate: Timestamp.fromDate(safeDate(row['Follow up'])),
+              visitDate: parseDateOrNA(row['Visit Date']),
+              visitOutcome: standardizeWithNA(row['Visit Outcome'] || ''),
+              followUpDate: parseDateOrNA(row['Follow up']),
               lob: standardizeValue(row['LOB'] || 'Service') as Quotation['lob'],
               customerCategory: customerCategory,
-              expectedMonth: standardizeValue(row['Expected Month'] || ''),
+              expectedMonth: standardizeWithNA(row['Expected Month'] || ''),
               uid: 'guest',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
               followUps: [],
-              confidenceHistory: confidence !== null ? [{
+              confidenceHistory: [{
                 value: confidence,
                 timestamp: Timestamp.now()
-              }] : []
+              }]
             });
           } catch (err) {
             console.error('Error parsing row:', row, err);
@@ -684,7 +711,7 @@ export default function App() {
     const toDate = reportDateRange.to ? new Date(reportDateRange.to) : null;
 
     const filtered = quotations.filter(q => {
-      if (!q.quoteLineCreatedDate) return false;
+      if (!q.quoteLineCreatedDate || typeof q.quoteLineCreatedDate === 'string') return false;
       const qDate = q.quoteLineCreatedDate.toDate();
       
       if (fromDate && qDate < fromDate) return false;
@@ -704,7 +731,7 @@ export default function App() {
     const csvData = filtered.map(q => ({
       'Quote No.': q.quoteNo,
       'Opportunity Number': q.opportunityNumber,
-      'Quote Line: Created Date': q.quoteLineCreatedDate ? format(q.quoteLineCreatedDate.toDate(), 'yyyy-MM-dd') : '',
+      'Quote Line: Created Date': formatDateDisplay(q.quoteLineCreatedDate, 'yyyy-MM-dd'),
       'Account': q.account,
       'Item': q.item,
       'Item Description': q.itemDescription,
@@ -723,9 +750,9 @@ export default function App() {
       'Customer': q.customer,
       'Customer Category': q.customerCategory,
       'Confidence (%)': q.confidence,
-      'Visit Date': q.visitDate ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : '',
+      'Visit Date': formatDateDisplay(q.visitDate, 'yyyy-MM-dd'),
       'Visit Outcome': q.visitOutcome,
-      'Follow up Date': q.followUpDate ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : '',
+      'Follow up Date': formatDateDisplay(q.followUpDate, 'yyyy-MM-dd'),
       'LOB': q.lob,
       'Expected Month': q.expectedMonth || '',
       'Remarks': q.remarks
@@ -906,7 +933,7 @@ export default function App() {
     setFormData({
       quoteNo: q.quoteNo || '',
       opportunityNumber: q.opportunityNumber || '',
-      quoteLineCreatedDate: q.quoteLineCreatedDate ? format(q.quoteLineCreatedDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      quoteLineCreatedDate: q.quoteLineCreatedDate && typeof q.quoteLineCreatedDate !== 'string' ? format(q.quoteLineCreatedDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       account: q.account || '',
       item: q.item || '',
       itemDescription: q.itemDescription || '',
@@ -924,9 +951,9 @@ export default function App() {
       zone: q.zone || 'Central',
       customer: q.customer || '',
       confidence: q.confidence || 50,
-      visitDate: q.visitDate ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      visitDate: q.visitDate && typeof q.visitDate !== 'string' ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       visitOutcome: q.visitOutcome || '',
-      followUpDate: q.followUpDate ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      followUpDate: q.followUpDate && typeof q.followUpDate !== 'string' ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       lob: q.lob || 'Service',
       customerCategory: q.customerCategory || 'Paid',
       expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM')
@@ -996,7 +1023,8 @@ export default function App() {
     }, {} as Record<string, number>);
 
     const confidenceWise = filteredForAnalytics.reduce((acc, q) => {
-      acc[q.confidence] = (acc[q.confidence] || 0) + 1;
+      const conf = q.confidence === null || q.confidence === undefined ? '#N/A' : q.confidence;
+      acc[conf] = (acc[conf] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
@@ -1009,7 +1037,7 @@ export default function App() {
     };
 
     filteredForAnalytics.forEach(q => {
-      if (!q.createdAt) return;
+      if (!q.createdAt || typeof q.createdAt === 'string') return;
       const days = differenceInDays(new Date(), q.createdAt.toDate());
       if (days <= 15) ageing['0-15']++;
       else if (days <= 30) ageing['16-30']++;
@@ -1032,7 +1060,7 @@ export default function App() {
 
     const monthWiseValue = filteredForAnalytics.reduce((acc, q) => {
       let month = 'Unknown';
-      if (q.expectedMonth) {
+      if (q.expectedMonth && q.expectedMonth !== '#N/A') {
         if (typeof q.expectedMonth === 'string') {
           month = q.expectedMonth;
         } else if (typeof (q.expectedMonth as any).toDate === 'function') {
@@ -1046,7 +1074,7 @@ export default function App() {
     const total = filteredForAnalytics.length;
     const totalValue = filteredForAnalytics.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
     
-    const highConfidenceQuotes = filteredForAnalytics.filter(q => (q.confidence || 0) >= 75);
+    const highConfidenceQuotes = filteredForAnalytics.filter(q => q.confidence !== null && q.confidence !== undefined && (q.confidence as number) >= 75);
     const highConfidenceValue = highConfidenceQuotes.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
 
     const highValueQuotes = filteredForAnalytics
@@ -1074,8 +1102,8 @@ export default function App() {
       .slice(0, 100);
 
     const top100AgeingQuotes = [...filteredForAnalytics]
-      .filter(q => q.createdAt)
-      .sort((a, b) => a.createdAt!.toDate().getTime() - b.createdAt!.toDate().getTime())
+      .filter(q => q.createdAt && typeof q.createdAt !== 'string')
+      .sort((a, b) => (a.createdAt as Timestamp).toDate().getTime() - (b.createdAt as Timestamp).toDate().getTime())
       .slice(0, 100);
 
     return {
@@ -1197,10 +1225,10 @@ export default function App() {
 
   const allFollowUps = useMemo(() => {
     const quoteFollowUps = quotations
-      .filter(q => q.followUpDate)
+      .filter(q => q.followUpDate && q.followUpDate !== '#N/A')
       .map(q => ({
         id: q.id,
-        date: q.followUpDate.toDate(),
+        date: (q.followUpDate as Timestamp).toDate(),
         fosName: q.fosName || 'N/A',
         customer: q.customer,
         type: 'Quotation',
@@ -2399,7 +2427,7 @@ export default function App() {
                     <div>
                       <p className="text-sm font-bold text-slate-900">
                         {quotations.filter(q => {
-                          if (!q.quoteLineCreatedDate) return false;
+                          if (!q.quoteLineCreatedDate || typeof q.quoteLineCreatedDate === 'string') return false;
                           const qDate = q.quoteLineCreatedDate.toDate();
                           const from = reportDateRange.from ? new Date(reportDateRange.from) : null;
                           const to = reportDateRange.to ? new Date(reportDateRange.to) : null;
@@ -2792,15 +2820,15 @@ export default function App() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${getConfidenceColor(q.confidence as any)}`}>
-                          {q.confidence}%
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${q.confidence === '#N/A' || q.confidence === null ? 'bg-slate-100 text-slate-600' : getConfidenceColor(q.confidence as number)}`}>
+                          {q.confidence === '#N/A' || q.confidence === null ? '#N/A' : `${q.confidence}%`}
                         </span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${getAgeingColor(q.createdAt ? differenceInDays(new Date(), q.createdAt.toDate()) : 0)}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${q.createdAt && typeof q.createdAt !== 'string' ? getAgeingColor(differenceInDays(new Date(), q.createdAt.toDate())) : 'bg-slate-300'}`} />
                           <span className="text-xs font-semibold text-slate-600">
-                            {q.createdAt ? `${differenceInDays(new Date(), q.createdAt.toDate())}d` : '-'}
+                            {q.createdAt && typeof q.createdAt !== 'string' ? `${differenceInDays(new Date(), q.createdAt.toDate())}d` : '#N/A'}
                           </span>
                         </div>
                       </td>
@@ -4022,8 +4050,8 @@ export default function App() {
                       {quotations
                         .filter(q => q.customer === selectedCustomer)
                         .sort((a, b) => {
-                          const dateA = a.quoteLineCreatedDate?.toDate().getTime() || 0;
-                          const dateB = b.quoteLineCreatedDate?.toDate().getTime() || 0;
+                          const dateA = a.quoteLineCreatedDate && typeof a.quoteLineCreatedDate !== 'string' ? a.quoteLineCreatedDate.toDate().getTime() : 0;
+                          const dateB = b.quoteLineCreatedDate && typeof b.quoteLineCreatedDate !== 'string' ? b.quoteLineCreatedDate.toDate().getTime() : 0;
                           return dateB - dateA;
                         })
                         .map((q) => (
@@ -4031,7 +4059,7 @@ export default function App() {
                             <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
                             <td className="py-4 text-sm text-slate-600">{q.item}</td>
                             <td className="py-4 text-sm text-slate-500">
-                              {q.quoteLineCreatedDate ? format(q.quoteLineCreatedDate.toDate(), 'dd MMM yyyy') : '-'}
+                              {formatDateDisplay(q.quoteLineCreatedDate)}
                             </td>
                             <td className="py-4">
                               <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
@@ -4212,8 +4240,10 @@ function getStatusColor(status: Quotation['status']) {
   }
 }
 
-function getConfidenceColor(level: number) {
-  const val = level;
+function getConfidenceColor(level: any) {
+  if (level === null || level === undefined || level === '#N/A') return 'bg-slate-100 text-slate-600';
+  const val = Number(level);
+  if (isNaN(val)) return 'bg-slate-100 text-slate-600';
   if (val <= 20) return 'bg-red-50 text-red-600';
   if (val <= 50) return 'bg-amber-50 text-amber-600';
   if (val <= 75) return 'bg-blue-50 text-blue-600';

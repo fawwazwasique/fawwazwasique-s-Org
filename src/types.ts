@@ -14,7 +14,7 @@ export interface Quotation {
   id?: string;
   quoteNo: string;
   opportunityNumber: string;
-  quoteLineCreatedDate: Timestamp;
+  quoteLineCreatedDate: Timestamp | string;
   account: string;
   item: string;
   itemDescription: string;
@@ -33,10 +33,10 @@ export interface Quotation {
   zone: string;
   customer: string;
   customerCategory: 'AMC' | 'NON - AMC' | 'Non - AMC' | 'Paid' | 'NEPI' | 'CAMC';
-  confidence: number | null;
-  visitDate: Timestamp;
+  confidence: number | string | null;
+  visitDate: Timestamp | string;
   visitOutcome: string;
-  followUpDate: Timestamp;
+  followUpDate: Timestamp | string;
   lob: 'Filter' | 'Core' | 'Recon' | 'Battery' | 'Oil' | 'Service' | 'Growth Parts' | 'Local Parts' | 'Engine L/B' | 'Oil - CAMC';
   createdAt: Timestamp;
   updatedAt: Timestamp;
