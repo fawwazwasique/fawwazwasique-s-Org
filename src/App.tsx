@@ -168,15 +168,12 @@ export default function App() {
   const [editingVisit, setEditingVisit] = useState<FOSVisit | null>(null);
   const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
   const [historyQuotation, setHistoryQuotation] = useState<Quotation | null>(null);
-  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
   const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
-  const [duplicateItems, setDuplicateItems] = useState<{ newData: any, existingId: string }[]>([]);
-  const [newBulkItems, setNewBulkItems] = useState<any[]>([]);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [masterFile, setMasterFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -343,6 +340,18 @@ export default function App() {
             const quoteNo = standardizeValue(getValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
             if (!quoteNo) return;
 
+            const baseAmount = quantity * unitPrice;
+            const existing = uniqueCsvItems.get(quoteNo);
+
+            if (existing) {
+              existing.baseAmount += baseAmount;
+              existing.quantity += quantity;
+              // Update metadata if it was #N/A but current row has data
+              if (existing.item === '#N/A') existing.item = standardizeWithNA(getValue(row, 'Item') || '');
+              if (existing.itemDescription === '#N/A') existing.itemDescription = standardizeWithNA(getValue(row, 'Item Description', 'Description') || '');
+              return;
+            }
+
             const assetNo = standardizeWithNA(getValue(row, 'Asset', 'Asset No', 'AssetNo') || '');
             let customerCategory = standardizeValue(getValue(row, 'Customer Category', 'Category') || 'Paid') as Quotation['customerCategory'];
 
@@ -366,7 +375,7 @@ export default function App() {
               itemDescription: standardizeWithNA(getValue(row, 'Item Description', 'Description') || ''),
               quantity: quantity,
               unitPrice: unitPrice,
-              baseAmount: quantity * unitPrice,
+              baseAmount: baseAmount,
               status: standardizeWithNA(getValue(row, 'Status') || 'Submitted'),
               saleOrder: standardizeWithNA(getValue(row, 'Sale Order', 'SaleOrder') || ''),
               branch: standardizeWithNA(getValue(row, 'Branch') || ''),
@@ -400,45 +409,54 @@ export default function App() {
         });
 
         const parsedItems = Array.from(uniqueCsvItems.values());
-        const duplicates: { newData: any, existingId: string }[] = [];
+        const updates: { newData: any, existingId: string }[] = [];
         const newItems: any[] = [];
 
         parsedItems.forEach((item: any) => {
           const existing = quotations.find(q => q.quoteNo === item.quoteNo);
           if (existing && existing.id) {
-            duplicates.push({ newData: item, existingId: existing.id });
+            updates.push({ newData: item, existingId: existing.id });
           } else {
             newItems.push(item);
           }
         });
 
-        if (duplicates.length > 0) {
-          setDuplicateItems(duplicates);
-          setNewBulkItems(newItems);
-          setIsDuplicateModalOpen(true);
-          setIsUploading(false);
-        } else {
-          try {
-            const promises = newItems.map(data => addDoc(collection(db, 'quotations'), data));
-            await Promise.all(promises);
-            setIsBulkModalOpen(false);
-            setBulkFile(null);
-            
-            const highValueAdded = newItems.filter(item => item.baseAmount >= 100000).length;
-            if (highValueAdded > 0) {
-              setToast({ 
-                message: `Successfully uploaded ${newItems.length} quotations. ${highValueAdded} High Value quotes added!`, 
-                type: 'success' 
+        try {
+          // Process updates (Replace existing)
+          const updatePromises = updates.map(upd => {
+            const existing = quotations.find(q => q.id === upd.existingId);
+            const history = [...(existing?.confidenceHistory || [])];
+            if (existing && Number(existing.confidence) !== Number(upd.newData.confidence)) {
+              history.push({
+                value: Number(upd.newData.confidence),
+                timestamp: Timestamp.now()
               });
-            } else {
-              setToast({ message: `Successfully uploaded ${newItems.length} quotations`, type: 'success' });
             }
-          } catch (error) {
-            handleFirestoreError(error, OperationType.CREATE, 'quotations');
-            setToast({ message: 'Failed to upload quotations', type: 'error' });
-          } finally {
-            setIsUploading(false);
-          }
+            return updateDoc(doc(db, 'quotations', upd.existingId), {
+              ...upd.newData,
+              confidenceHistory: history,
+              updatedAt: serverTimestamp()
+            });
+          });
+          
+          // Process new items
+          const createPromises = newItems.map(data => addDoc(collection(db, 'quotations'), data));
+          
+          await Promise.all([...updatePromises, ...createPromises]);
+          
+          setIsBulkModalOpen(false);
+          setBulkFile(null);
+          
+          const totalProcessed = updates.length + newItems.length;
+          setToast({ 
+            message: `Successfully processed ${totalProcessed} quotations (${updates.length} updated, ${newItems.length} new)`, 
+            type: 'success' 
+          });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, 'quotations');
+          setToast({ message: 'Failed to process bulk upload', type: 'error' });
+        } finally {
+          setIsUploading(false);
         }
       },
       error: (error) => {
@@ -487,48 +505,6 @@ export default function App() {
         setIsUploading(false);
       }
     });
-  };
-
-  const handleDuplicateAction = async (action: 'replace' | 'skip') => {
-    setIsUploading(true);
-    try {
-      if (action === 'replace') {
-        const updatePromises = duplicateItems.map(dup => {
-          const existing = quotations.find(q => q.id === dup.existingId);
-          const history = [...(existing?.confidenceHistory || [])];
-          if (existing && existing.confidence !== Number(dup.newData.confidence)) {
-            history.push({
-              value: Number(dup.newData.confidence),
-              timestamp: Timestamp.now()
-            });
-          }
-          return updateDoc(doc(db, 'quotations', dup.existingId), {
-            ...dup.newData,
-            confidenceHistory: history,
-            updatedAt: serverTimestamp()
-          });
-        });
-        await Promise.all(updatePromises);
-      }
-      
-      const addPromises = newBulkItems.map(data => addDoc(collection(db, 'quotations'), data));
-      await Promise.all(addPromises);
-
-      setIsBulkModalOpen(false);
-      setIsDuplicateModalOpen(false);
-      setBulkFile(null);
-      setDuplicateItems([]);
-      setNewBulkItems([]);
-      setToast({ 
-        message: `Bulk upload processed: ${action === 'replace' ? duplicateItems.length : 0} replaced, ${newBulkItems.length} added`, 
-        type: 'success' 
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'quotations');
-      setToast({ message: 'Failed to process bulk upload', type: 'error' });
-    } finally {
-      setIsUploading(false);
-    }
   };
 
   const downloadTemplate = () => {
@@ -3657,94 +3633,6 @@ export default function App() {
       </AnimatePresence>
 
       {/* Duplicate Confirmation Modal */}
-      <AnimatePresence>
-        {isDuplicateModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsDuplicateModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200"
-            >
-              <div className="p-8 border-b border-slate-100 bg-amber-50/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shadow-inner">
-                    <Zap size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">
-                      {duplicateItems.length === 1 ? 'Quotation Already Exists' : 'Duplicate Quotations Found'}
-                    </h3>
-                    <p className="text-slate-500 text-sm mt-1">
-                      {duplicateItems.length === 1 
-                        ? `Quotation ${duplicateItems[0].newData.quoteNo} is already in the system.`
-                        : `${duplicateItems.length} quotations already exist in the system.`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="p-8">
-                {duplicateItems.length > 1 && (
-                  <div className="max-h-48 overflow-y-auto mb-6 pr-2 custom-scrollbar border border-slate-100 rounded-2xl p-2 bg-slate-50/30">
-                    <div className="space-y-2">
-                      {duplicateItems.map((dup, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <span className="text-sm font-bold text-slate-700">{dup.newData.quoteNo}</span>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{dup.newData.customer}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <p className="text-sm text-slate-600 mb-8 leading-relaxed">
-                  {duplicateItems.length === 1 
-                    ? 'Do you want to replace the existing quotation with this new one, or skip it?'
-                    : 'Would you like to replace the existing quotations with these new ones, or skip them and only add the new entries?'}
-                </p>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <button 
-                    onClick={() => handleDuplicateAction('skip')}
-                    disabled={isUploading}
-                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm disabled:opacity-50"
-                  >
-                    Skip Duplicates
-                  </button>
-                  <button 
-                    onClick={() => handleDuplicateAction('replace')}
-                    disabled={isUploading}
-                    className="px-6 py-3.5 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-sm disabled:opacity-50"
-                  >
-                    {isUploading ? 'Processing...' : 'Replace All'}
-                  </button>
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    setIsDuplicateModalOpen(false);
-                    setDuplicateItems([]);
-                    setNewBulkItems([]);
-                  }}
-                  className="w-full mt-4 py-2 text-slate-400 hover:text-slate-600 text-xs font-bold transition-colors"
-                >
-                  Cancel Upload
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Confidence History Modal */}
       <AnimatePresence>
         {historyQuotation && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
