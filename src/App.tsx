@@ -12,6 +12,7 @@ import {
   updateDoc, 
   doc, 
   deleteDoc, 
+  writeBatch,
   Timestamp, 
   serverTimestamp,
   orderBy,
@@ -422,27 +423,36 @@ export default function App() {
         });
 
         try {
-          // Process updates (Replace existing)
-          const updatePromises = updates.map(upd => {
-            const existing = quotations.find(q => q.id === upd.existingId);
-            const history = [...(existing?.confidenceHistory || [])];
-            if (existing && Number(existing.confidence) !== Number(upd.newData.confidence)) {
-              history.push({
-                value: Number(upd.newData.confidence),
-                timestamp: Timestamp.now()
-              });
-            }
-            return updateDoc(doc(db, 'quotations', upd.existingId), {
-              ...upd.newData,
-              confidenceHistory: history,
-              updatedAt: serverTimestamp()
+          const allOperations = [...updates.map(u => ({ type: 'update', ...u })), ...newItems.map(n => ({ type: 'add', newData: n }))];
+          const batchSize = 500;
+          
+          for (let i = 0; i < allOperations.length; i += batchSize) {
+            const batch = writeBatch(db);
+            const chunk = allOperations.slice(i, i + batchSize);
+            
+            chunk.forEach(op => {
+              if (op.type === 'update') {
+                const existing = quotations.find(q => q.id === op.existingId);
+                const history = [...(existing?.confidenceHistory || [])];
+                if (existing && Number(existing.confidence) !== Number(op.newData.confidence)) {
+                  history.push({
+                    value: Number(op.newData.confidence),
+                    timestamp: Timestamp.now()
+                  });
+                }
+                batch.update(doc(db, 'quotations', op.existingId), {
+                  ...op.newData,
+                  confidenceHistory: history,
+                  updatedAt: serverTimestamp()
+                });
+              } else {
+                const newDocRef = doc(collection(db, 'quotations'));
+                batch.set(newDocRef, op.newData);
+              }
             });
-          });
-          
-          // Process new items
-          const createPromises = newItems.map(data => addDoc(collection(db, 'quotations'), data));
-          
-          await Promise.all([...updatePromises, ...createPromises]);
+            
+            await batch.commit();
+          }
           
           setIsBulkModalOpen(false);
           setBulkFile(null);
