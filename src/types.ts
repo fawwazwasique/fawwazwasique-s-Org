@@ -33,11 +33,11 @@ export interface Quotation {
   zone: string;
   customer: string;
   customerCategory: 'AMC' | 'NON - AMC' | 'Non - AMC' | 'Paid' | 'NEPI' | 'CAMC';
-  confidence: number;
+  confidence: number | null;
   visitDate: Timestamp;
   visitOutcome: string;
   followUpDate: Timestamp;
-  lob: 'Core' | 'RRA Kit' | 'Bearing & Greasing' | 'Controller conversion' | 'Hose & Belt' | 'Filters' | 'Coolant' | 'Radiwash' | 'Recon parts' | 'Battery' | 'CC' | 'Oil' | 'Local Parts' | 'New Engines' | 'Recon Engine' | 'DFK' | 'RAS' | 'RECD' | 'DATUM' | 'Service';
+  lob: 'Filter' | 'Core' | 'Recon' | 'Battery' | 'Oil' | 'Service' | 'Growth Parts' | 'Local Parts' | 'Engine L/B' | 'Oil - CAMC';
   createdAt: Timestamp;
   updatedAt: Timestamp;
   uid: string;
@@ -81,5 +81,5 @@ export interface FOSVisit {
 export interface MasterAsset {
   id?: string;
   assetNo: string;
-  category: 'AMC' | 'Non - AMC' | 'NEPI' | 'CAMC';
+  category: 'AMC' | 'Non - AMC' | 'NEPI' | 'CAMC' | 'Paid';
 }

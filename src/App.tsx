@@ -75,6 +75,7 @@ const standardizeValue = (val: string): string => {
   const trimmed = val.trim();
   const upper = trimmed.toUpperCase().replace(/\s/g, '');
   
+  if (upper === 'NTUPT') return '';
   if (upper === 'NON-AMC' || upper === 'NONAMC') return 'Non - AMC';
   if (upper === 'AMC') return 'AMC';
   if (upper === 'PAID') return 'Paid';
@@ -315,6 +316,9 @@ export default function App() {
               }
             }
 
+            const rawConfidence = standardizeValue(row['Confidence'] || '');
+            const confidence = rawConfidence === '' ? null : Number(rawConfidence);
+
             uniqueCsvItems.set(quoteNo, {
               quoteNo,
               opportunityNumber: standardizeValue(row['Opportunity Number'] || ''),
@@ -336,21 +340,21 @@ export default function App() {
               shippingAddress: standardizeValue(row['Shipping Address'] || ''),
               zone: standardizeValue(row['Zone'] || 'Central'),
               customer: standardizeValue(row['Customer'] || ''),
-              confidence: Number(row['Confidence']) || 10,
+              confidence: confidence,
               visitDate: Timestamp.fromDate(safeDate(row['Visit Date'])),
               visitOutcome: standardizeValue(row['Visit Outcome'] || ''),
               followUpDate: Timestamp.fromDate(safeDate(row['Follow up'])),
               lob: standardizeValue(row['LOB'] || 'Service') as Quotation['lob'],
               customerCategory: customerCategory,
-              expectedMonth: standardizeValue(row['Expected Month'] || format(new Date(), 'yyyy-MM')),
+              expectedMonth: standardizeValue(row['Expected Month'] || ''),
               uid: 'guest',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
               followUps: [],
-              confidenceHistory: [{
-                value: Number(row['Confidence']) || 10,
+              confidenceHistory: confidence !== null ? [{
+                value: confidence,
                 timestamp: Timestamp.now()
-              }]
+              }] : []
             });
           } catch (err) {
             console.error('Error parsing row:', row, err);
@@ -515,6 +519,8 @@ export default function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const confidence = formData.confidence === '' || formData.confidence === null ? null : Number(formData.confidence);
+    
     const data = {
       ...formData,
       quoteNo: standardizeValue(formData.quoteNo),
@@ -537,6 +543,7 @@ export default function App() {
       lob: standardizeValue(formData.lob) as Quotation['lob'],
       customerCategory: standardizeValue(formData.customerCategory) as Quotation['customerCategory'],
       expectedMonth: standardizeValue(formData.expectedMonth),
+      confidence: confidence,
       quantity: Number(formData.quantity),
       unitPrice: Number(formData.unitPrice),
       baseAmount: Number(formData.quantity) * Number(formData.unitPrice),
@@ -550,9 +557,9 @@ export default function App() {
     try {
       if (editingQuotation?.id) {
         const history = [...(editingQuotation.confidenceHistory || [])];
-        if (editingQuotation.confidence !== Number(formData.confidence)) {
+        if (editingQuotation.confidence !== confidence) {
           history.push({
-            value: Number(formData.confidence),
+            value: confidence || 0,
             timestamp: Timestamp.now()
           });
         }
@@ -566,10 +573,10 @@ export default function App() {
           ...data,
           createdAt: serverTimestamp(),
           followUps: [],
-          confidenceHistory: [{
-            value: Number(formData.confidence),
+          confidenceHistory: confidence !== null ? [{
+            value: confidence,
             timestamp: Timestamp.now()
-          }]
+          }] : []
         });
         setToast({ message: 'Quotation created successfully', type: 'success' });
       }
@@ -1419,9 +1426,7 @@ export default function App() {
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOB Filter</label>
               <MultiSelect 
                 options={[
-                  'Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 
-                  'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 
-                  'Oil', 'Local Parts', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'
+                  'Filter', 'Core', 'Recon', 'Battery', 'Oil', 'Service', 'Growth Parts', 'Local Parts', 'Engine L/B', 'Oil - CAMC'
                 ]}
                 selected={lobFilter}
                 onChange={setLobFilter}
@@ -1564,6 +1569,44 @@ export default function App() {
                           className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
                         >
                           <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Data Quality Alert */}
+            {quotations.filter(q => !q.expectedMonth || !q.asset || q.confidence === null).length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
+                    <AlertCircle size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900">Missing Critical Information</h4>
+                    <p className="text-xs text-slate-500 font-medium">Some quotations are missing Expected Month, Asset No, or Confidence Level</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {quotations
+                    .filter(q => !q.expectedMonth || !q.asset || q.confidence === null)
+                    .slice(0, 3)
+                    .map((q, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-red-100 shadow-sm flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-slate-900 truncate">{q.customer}</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {!q.expectedMonth && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">Exp Month</span>}
+                            {!q.asset && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">Asset No</span>}
+                            {q.confidence === null && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">Confidence</span>}
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => openEditModal(q)}
+                          className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                        >
+                          <Edit2 size={16} />
                         </button>
                       </div>
                     ))}
@@ -3111,26 +3154,16 @@ export default function App() {
                       value={formData.lob}
                       onChange={(e) => setFormData({ ...formData, lob: e.target.value as Quotation['lob'] })}
                     >
+                      <option value="Filter">Filter</option>
                       <option value="Core">Core</option>
-                      <option value="RRA Kit">RRA Kit</option>
-                      <option value="Bearing & Greasing">Bearing & Greasing</option>
-                      <option value="Controller conversion">Controller conversion</option>
-                      <option value="Hose & Belt">Hose & Belt</option>
-                      <option value="Filters">Filters</option>
-                      <option value="Coolant">Coolant</option>
-                      <option value="Radiwash">Radiwash</option>
-                      <option value="Recon parts">Recon parts</option>
+                      <option value="Recon">Recon</option>
                       <option value="Battery">Battery</option>
-                      <option value="CC">CC</option>
                       <option value="Oil">Oil</option>
-                      <option value="Local Parts">Local Parts</option>
-                      <option value="New Engines">New Engines</option>
-                      <option value="Recon Engine">Recon Engine</option>
-                      <option value="DFK">DFK</option>
-                      <option value="RAS">RAS</option>
-                      <option value="RECD">RECD</option>
-                      <option value="DATUM">DATUM</option>
                       <option value="Service">Service</option>
+                      <option value="Growth Parts">Growth Parts</option>
+                      <option value="Local Parts">Local Parts</option>
+                      <option value="Engine L/B">Engine L/B</option>
+                      <option value="Oil - CAMC">Oil - CAMC</option>
                     </select>
                   </div>
                   <div className="lg:col-span-3">
