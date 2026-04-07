@@ -61,6 +61,8 @@ export interface FOS {
   employeeId: string;
   branch: string;
   zone: string;
+  partsTarget?: number;
+  otherLocTarget?: number;
   createdAt: Timestamp;
 }
 

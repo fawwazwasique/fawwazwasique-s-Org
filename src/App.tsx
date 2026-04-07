@@ -203,8 +203,11 @@ export default function App() {
     name: '',
     employeeId: '',
     branch: '',
-    zone: 'Central'
+    zone: 'Central',
+    partsTarget: '',
+    otherLocTarget: ''
   });
+  const [editingFos, setEditingFos] = useState<FOS | null>(null);
 
   const [visitFormData, setVisitFormData] = useState({
     fosId: '',
@@ -667,16 +670,29 @@ export default function App() {
   const handleFosSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'fos'), {
-        ...fosFormData,
-        createdAt: serverTimestamp()
-      });
+      if (editingFos) {
+        await updateDoc(doc(db, 'fos', editingFos.id!), {
+          ...fosFormData,
+          partsTarget: Number(fosFormData.partsTarget) || 0,
+          otherLocTarget: Number(fosFormData.otherLocTarget) || 0,
+          updatedAt: serverTimestamp()
+        });
+        setToast({ message: 'FOS member updated successfully', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'fos'), {
+          ...fosFormData,
+          partsTarget: Number(fosFormData.partsTarget) || 0,
+          otherLocTarget: Number(fosFormData.otherLocTarget) || 0,
+          createdAt: serverTimestamp()
+        });
+        setToast({ message: 'FOS member added successfully', type: 'success' });
+      }
       setIsFosModalOpen(false);
-      setFosFormData({ name: '', employeeId: '', branch: '', zone: 'Central' });
-      setToast({ message: 'FOS member added successfully', type: 'success' });
+      setEditingFos(null);
+      setFosFormData({ name: '', employeeId: '', branch: '', zone: 'Central', partsTarget: '', otherLocTarget: '' });
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'fos');
-      setToast({ message: 'Failed to add FOS member', type: 'error' });
+      handleFirestoreError(error, editingFos ? OperationType.UPDATE : OperationType.CREATE, 'fos');
+      setToast({ message: `Failed to ${editingFos ? 'update' : 'add'} FOS member`, type: 'error' });
     }
   };
 
@@ -1187,6 +1203,30 @@ export default function App() {
       .sort((a, b) => (a.quoteLineCreatedDate as Timestamp).toDate().getTime() - (b.quoteLineCreatedDate as Timestamp).toDate().getTime())
       .slice(0, 100);
 
+    const fosPerformanceData = fosList.map(fos => {
+      const fosQuotes = quotations.filter(q => standardizeValue(q.fosName) === standardizeValue(fos.name));
+      const partsLocs = ['Growth Parts', 'Local Parts'];
+      
+      const partsAchievement = fosQuotes
+        .filter(q => partsLocs.includes(q.loc) && (q.status === 'Converted' || Number(q.confidence) >= 90))
+        .reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+        
+      const otherLocAchievement = fosQuotes
+        .filter(q => !partsLocs.includes(q.loc) && (q.status === 'Converted' || Number(q.confidence) >= 90))
+        .reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+        
+      return {
+        id: fos.id,
+        name: fos.name,
+        partsTarget: fos.partsTarget || 0,
+        otherLocTarget: fos.otherLocTarget || 0,
+        partsAchievement,
+        otherLocAchievement,
+        totalTarget: (fos.partsTarget || 0) + (fos.otherLocTarget || 0),
+        totalAchievement: partsAchievement + otherLocAchievement
+      };
+    });
+
     return {
       total,
       totalValue,
@@ -1204,10 +1244,14 @@ export default function App() {
       confidenceLevelData: Object.entries(confidenceBuckets).map(([name, data]) => ({ name, count: data.count, value: data.value })),
       amountWiseData: Object.entries(amountBuckets).map(([name, data]) => ({ name, count: data.count, value: data.value })),
       zoneData: Object.entries(zoneWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
-      fosData: Object.entries(fosWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
+      fosData: fosPerformanceData.map(fos => ({ 
+        name: fos.name, 
+        value: fos.totalTarget > 0 ? Math.round((fos.totalAchievement / fos.totalTarget) * 100) : 0 
+      })).sort((a, b) => b.value - a.value),
       ageingData: Object.entries(ageing).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
       followUpFosData: Object.entries(followUpByFos).map(([name, value]: [string, number]) => ({ name, value })),
       customerCategoryValueData: Object.entries(customerCategoryWise).map(([name, value]: [string, number]) => ({ name, value })),
+      fosPerformanceData,
       monthWiseData: Object.entries(monthWiseValue)
         .map(([name, value]: [string, number]) => {
           return { name: formatExpectedMonth(name), value, raw: name };
@@ -1877,7 +1921,7 @@ export default function App() {
                 </ResponsiveContainer>
               </ChartWrapper>
 
-              <ChartWrapper title="FOS Performance (%)">
+              <ChartWrapper title="FOS Achievement (%)">
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={analytics.fosData} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
@@ -1898,6 +1942,54 @@ export default function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </ChartWrapper>
+
+              <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">FOS Target vs Achievement</h3>
+                    <p className="text-slate-500 text-sm mt-1">Performance based on 90%+ confidence quotations</p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                        <th className="px-6 py-4">FOS Name</th>
+                        <th className="px-6 py-4">Parts Target</th>
+                        <th className="px-6 py-4">Parts Achievement</th>
+                        <th className="px-6 py-4">Other LOC Target</th>
+                        <th className="px-6 py-4">Other LOC Achievement</th>
+                        <th className="px-6 py-4">Total Achievement %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {analytics.fosPerformanceData.map((fos) => {
+                        const achievementPercent = fos.totalTarget > 0 ? (fos.totalAchievement / fos.totalTarget) * 100 : 0;
+                        return (
+                          <tr key={fos.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 font-semibold text-slate-900 text-sm">{fos.name}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600">₹{fos.partsTarget.toLocaleString('en-IN')}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">₹{fos.partsAchievement.toLocaleString('en-IN')}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600">₹{fos.otherLocTarget.toLocaleString('en-IN')}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">₹{fos.otherLocAchievement.toLocaleString('en-IN')}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full transition-all duration-500 ${achievementPercent >= 100 ? 'bg-emerald-500' : achievementPercent >= 50 ? 'bg-[#00AEEF]' : 'bg-amber-500'}`}
+                                    style={{ width: `${Math.min(achievementPercent, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-bold text-slate-700">{achievementPercent.toFixed(1)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               <ChartWrapper title="Follow-ups by FOS">
                 <ResponsiveContainer width="100%" height={300}>
@@ -2353,10 +2445,30 @@ export default function App() {
                     const completed = fosVisits.filter(v => v.status === 'Completed').length;
                     const business = fosVisits.reduce((sum, v) => sum + (v.businessGenerated || 0), 0);
                     return (
-                      <div key={fos.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div key={fos.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 group relative">
                         <div className="flex items-center justify-between mb-2">
-                          <p className="font-bold text-slate-900">{fos.name}</p>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{fos.employeeId}</span>
+                          <div>
+                            <p className="font-bold text-slate-900">{fos.name}</p>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{fos.employeeId}</span>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setEditingFos(fos);
+                              setFosFormData({
+                                name: fos.name,
+                                employeeId: fos.employeeId,
+                                branch: fos.branch,
+                                zone: fos.zone,
+                                partsTarget: fos.partsTarget?.toString() || '',
+                                otherLocTarget: fos.otherLocTarget?.toString() || ''
+                              });
+                              setIsFosModalOpen(true);
+                            }}
+                            className="p-2 text-slate-400 hover:text-[#00AEEF] hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Edit FOS"
+                          >
+                            <Edit2 size={14} />
+                          </button>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mt-4">
                           <div>
@@ -2368,6 +2480,18 @@ export default function App() {
                             <p className="text-sm font-bold text-[#8DC63F]">₹{business.toLocaleString('en-IN')}</p>
                           </div>
                         </div>
+                        {(fos.partsTarget || fos.otherLocTarget) && (
+                          <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts Target</p>
+                              <p className="text-xs font-bold text-slate-600">₹{(fos.partsTarget || 0).toLocaleString('en-IN')}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Other Target</p>
+                              <p className="text-xs font-bold text-slate-600">₹{(fos.otherLocTarget || 0).toLocaleString('en-IN')}</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -3590,7 +3714,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsFosModalOpen(false)}
+              onClick={() => { setIsFosModalOpen(false); setEditingFos(null); }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -3601,10 +3725,10 @@ export default function App() {
             >
               <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Add FOS Details</h3>
-                  <p className="text-slate-500 text-xs mt-1">Register a new Field Officer Sales member.</p>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">{editingFos ? 'Edit FOS Details' : 'Add FOS Details'}</h3>
+                  <p className="text-slate-500 text-xs mt-1">{editingFos ? 'Update the details for this FOS member.' : 'Register a new Field Officer Sales member.'}</p>
                 </div>
-                <button onClick={() => setIsFosModalOpen(false)} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-[#00AEEF] shadow-sm border border-slate-100 transition-all active:scale-90">
+                <button onClick={() => { setIsFosModalOpen(false); setEditingFos(null); }} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-[#00AEEF] shadow-sm border border-slate-100 transition-all active:scale-90">
                   <Plus className="rotate-45" size={24} />
                 </button>
               </div>
@@ -3654,10 +3778,33 @@ export default function App() {
                     <option value="West">West</option>
                   </select>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Parts Target (₹)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={fosFormData.partsTarget}
+                      onChange={(e) => setFosFormData({ ...fosFormData, partsTarget: e.target.value })}
+                      placeholder="e.g. 1000000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Other LOC Target (₹)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={fosFormData.otherLocTarget}
+                      onChange={(e) => setFosFormData({ ...fosFormData, otherLocTarget: e.target.value })}
+                      placeholder="e.g. 5000000"
+                    />
+                  </div>
+                </div>
                 <div className="pt-4 flex justify-end gap-3">
                   <button 
                     type="button"
-                    onClick={() => setIsFosModalOpen(false)}
+                    onClick={() => { setIsFosModalOpen(false); setEditingFos(null); }}
                     className="px-6 py-2.5 text-slate-500 hover:bg-slate-50 rounded-xl font-semibold transition-all text-sm"
                   >
                     Cancel
@@ -3666,7 +3813,7 @@ export default function App() {
                     type="submit"
                     className="px-8 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 text-sm"
                   >
-                    Add FOS
+                    {editingFos ? 'Update FOS' : 'Add FOS'}
                   </button>
                 </div>
               </form>
