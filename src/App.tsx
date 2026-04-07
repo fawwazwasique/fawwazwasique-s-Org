@@ -29,13 +29,16 @@ import {
   ResponsiveContainer, 
   PieChart, 
   Pie, 
-  Cell
+  Cell,
+  Line,
+  ComposedChart
 } from 'recharts';
 import { 
   Plus, 
   LayoutDashboard, 
   FileText, 
   TrendingUp, 
+  TrendingDown,
   Clock, 
   ShieldCheck,
   Search,
@@ -52,7 +55,11 @@ import {
   CheckCircle,
   Download,
   Users,
-  X
+  X,
+  ArrowUpRight,
+  ArrowDownRight,
+  RefreshCw,
+  FileSpreadsheet
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
@@ -134,7 +141,7 @@ export default function App() {
   const [fosList, setFosList] = useState<FOS[]>([]);
   const [visits, setVisits] = useState<FOSVisit[]>([]);
   const [masterAssets, setMasterAssets] = useState<MasterAsset[]>([]);
-  const [lobFilter, setLobFilter] = useState<string[]>([]);
+  const [locFilter, setLocFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [zoneFilter, setZoneFilter] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
@@ -168,9 +175,11 @@ export default function App() {
     visitDate: format(new Date(), 'yyyy-MM-dd'),
     visitOutcome: '',
     followUpDate: format(new Date(), 'yyyy-MM-dd'),
-    lob: 'Service' as Quotation['lob'],
+    lob: 'Service' as any,
     customerCategory: 'Paid' as Quotation['customerCategory'],
-    expectedMonth: format(new Date(), 'yyyy-MM')
+    expectedMonth: format(new Date(), 'yyyy-MM'),
+    followUpResponsibility: '',
+    statusRemarks: ''
   });
 
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -402,7 +411,7 @@ export default function App() {
               visitDate: parseDateOrNA(getValue(row, 'Visit Date')),
               visitOutcome: standardizeWithNA(getValue(row, 'Visit Outcome') || ''),
               followUpDate: parseDateOrNA(getValue(row, 'Follow up', 'Follow up Date')),
-              lob: standardizeValue(getValue(row, 'LOB') || 'Service') as Quotation['lob'],
+              loc: standardizeValue(getValue(row, 'LOC') || getValue(row, 'LOB') || 'Service') as Quotation['loc'],
               customerCategory: customerCategory,
               expectedMonth: standardizeWithNA(getValue(row, 'Expected Month') || ''),
               uid: 'guest',
@@ -433,7 +442,10 @@ export default function App() {
         });
 
         try {
-          const allOperations = [...updates.map(u => ({ type: 'update', ...u })), ...newItems.map(n => ({ type: 'add', newData: n }))];
+          const allOperations = [
+            ...updates.map(u => ({ type: 'update' as const, ...u })), 
+            ...newItems.map(n => ({ type: 'add' as const, newData: n }))
+          ];
           const batchSize = 500;
           
           for (let i = 0; i < allOperations.length; i += batchSize) {
@@ -442,22 +454,24 @@ export default function App() {
             
             chunk.forEach(op => {
               if (op.type === 'update') {
-                const existing = quotations.find(q => q.id === op.existingId);
+                const updateOp = op as { type: 'update', newData: any, existingId: string };
+                const existing = quotations.find(q => q.id === updateOp.existingId);
                 const history = [...(existing?.confidenceHistory || [])];
-                if (existing && Number(existing.confidence) !== Number(op.newData.confidence)) {
+                if (existing && Number(existing.confidence) !== Number(updateOp.newData.confidence)) {
                   history.push({
-                    value: Number(op.newData.confidence),
+                    value: Number(updateOp.newData.confidence),
                     timestamp: Timestamp.now()
                   });
                 }
-                batch.update(doc(db, 'quotations', op.existingId), {
-                  ...op.newData,
+                batch.update(doc(db, 'quotations', updateOp.existingId), {
+                  ...updateOp.newData,
                   confidenceHistory: history,
                   updatedAt: serverTimestamp()
                 });
               } else {
+                const addOp = op as { type: 'add', newData: any };
                 const newDocRef = doc(collection(db, 'quotations'));
-                batch.set(newDocRef, op.newData);
+                batch.set(newDocRef, addOp.newData);
               }
             });
             
@@ -574,7 +588,7 @@ export default function App() {
       zone: standardizeValue(formData.zone),
       customer: standardizeValue(formData.customer),
       visitOutcome: standardizeValue(formData.visitOutcome),
-      lob: standardizeValue(formData.lob) as Quotation['lob'],
+      loc: standardizeValue(formData.lob) as Quotation['loc'],
       customerCategory: standardizeValue(formData.customerCategory) as Quotation['customerCategory'],
       expectedMonth: standardizeValue(formData.expectedMonth),
       confidence: confidence,
@@ -961,9 +975,11 @@ export default function App() {
       visitDate: q.visitDate && typeof q.visitDate !== 'string' ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : '',
       visitOutcome: q.visitOutcome || '',
       followUpDate: q.followUpDate && typeof q.followUpDate !== 'string' ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : '',
-      lob: q.lob || 'Service',
+      loc: q.loc || 'Service',
       customerCategory: q.customerCategory || 'Paid',
-      expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM')
+      expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM'),
+      followUpResponsibility: q.followUpResponsibility || '',
+      statusRemarks: q.statusRemarks || ''
     });
     setIsModalOpen(true);
   };
@@ -971,14 +987,14 @@ export default function App() {
   // Analytics Calculations
   const analytics = useMemo(() => {
     const filteredForAnalytics = quotations.filter(q => {
-      const qLob = standardizeValue(q.lob);
+      const qLoc = standardizeValue(q.loc);
       const qStatus = standardizeValue(q.status);
       const qZone = standardizeValue(q.zone);
       const qCategory = standardizeValue(q.customerCategory);
       const qFos = standardizeValue(q.fosName);
       const qBranch = standardizeValue(q.branch);
 
-      const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
+      const matchesLoc = locFilter.length === 0 || locFilter.includes(qLoc);
       const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
       const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
       const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
@@ -1000,14 +1016,14 @@ export default function App() {
         }
       }
       
-      return matchesLob && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
+      return matchesLoc && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
     });
 
-    const lobWise = filteredForAnalytics.reduce((acc, q) => {
-      const lob = standardizeValue(q.lob);
-      acc[lob] = acc[lob] || { count: 0, value: 0 };
-      acc[lob].count += 1;
-      acc[lob].value += (q.baseAmount || 0);
+    const locWise = filteredForAnalytics.reduce((acc, q) => {
+      const loc = standardizeValue(q.loc);
+      acc[loc] = acc[loc] || { count: 0, value: 0 };
+      acc[loc].count += 1;
+      acc[loc].value += (q.baseAmount || 0);
       return acc;
     }, {} as Record<string, { count: number, value: number }>);
 
@@ -1029,11 +1045,69 @@ export default function App() {
       return acc;
     }, {} as Record<string, number>);
 
-    const confidenceWise = filteredForAnalytics.reduce((acc, q) => {
-      const conf = q.confidence === null || q.confidence === undefined ? '#N/A' : q.confidence;
-      acc[conf] = (acc[conf] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    // MOM Calculations
+    const now = new Date();
+    const currentMonthStr = format(now, 'yyyy-MM');
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1);
+    const lastMonthStr = format(lastMonthDate, 'yyyy-MM');
+
+    const currentMonthData = filteredForAnalytics.filter(q => {
+      const qDate = q.createdAt?.toDate();
+      return qDate && format(qDate, 'yyyy-MM') === currentMonthStr;
+    });
+
+    const lastMonthData = filteredForAnalytics.filter(q => {
+      const qDate = q.createdAt?.toDate();
+      return qDate && format(qDate, 'yyyy-MM') === lastMonthStr;
+    });
+
+    const currentMonthValue = currentMonthData.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+    const lastMonthValue = lastMonthData.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+    const currentMonthCount = currentMonthData.length;
+    const lastMonthCount = lastMonthData.length;
+
+    const valueMom = lastMonthValue > 0 ? ((currentMonthValue - lastMonthValue) / lastMonthValue) * 100 : 0;
+    const countMom = lastMonthCount > 0 ? ((currentMonthCount - lastMonthCount) / lastMonthCount) * 100 : 0;
+
+    // Confidence Level Data (Quote Value and Count)
+    const confidenceBuckets = {
+      '0-20%': { count: 0, value: 0 },
+      '21-40%': { count: 0, value: 0 },
+      '41-60%': { count: 0, value: 0 },
+      '61-80%': { count: 0, value: 0 },
+      '81-100%': { count: 0, value: 0 }
+    };
+
+    filteredForAnalytics.forEach(q => {
+      const conf = Number(q.confidence) || 0;
+      let bucket = '0-20%';
+      if (conf > 80) bucket = '81-100%';
+      else if (conf > 60) bucket = '61-80%';
+      else if (conf > 40) bucket = '41-60%';
+      else if (conf > 20) bucket = '21-40%';
+      
+      confidenceBuckets[bucket as keyof typeof confidenceBuckets].count++;
+      confidenceBuckets[bucket as keyof typeof confidenceBuckets].value += (q.baseAmount || 0);
+    });
+
+    // Amount Wise Data
+    const amountBuckets = {
+      'Less than 1 Lakh': { count: 0, value: 0 },
+      '1-3 Lakhs': { count: 0, value: 0 },
+      '4-5 Lakhs': { count: 0, value: 0 },
+      'Above 5 Lakhs': { count: 0, value: 0 }
+    };
+
+    filteredForAnalytics.forEach(q => {
+      const amt = q.baseAmount || 0;
+      let bucket = 'Less than 1 Lakh';
+      if (amt > 500000) bucket = 'Above 5 Lakhs';
+      else if (amt >= 400000) bucket = '4-5 Lakhs';
+      else if (amt >= 100000) bucket = '1-3 Lakhs';
+      
+      amountBuckets[bucket as keyof typeof amountBuckets].count++;
+      amountBuckets[bucket as keyof typeof amountBuckets].value += amt;
+    });
 
     const ageing = {
       '0-15': 0,
@@ -1116,8 +1190,8 @@ export default function App() {
     return {
       total,
       totalValue,
-      highConfidenceCount: highConfidenceQuotes.length,
-      highConfidenceValue,
+      valueMom,
+      countMom,
       highValueQuotes,
       highValueCount: highValueQuotes.length,
       highValueTotalValue,
@@ -1126,11 +1200,11 @@ export default function App() {
       top100CustomerQuotes,
       top100AgeingQuotes,
       customerWiseValue,
-      lobData: Object.entries(lobWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
-      statusData: Object.entries(statusWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
+      locData: Object.entries(locWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
+      confidenceLevelData: Object.entries(confidenceBuckets).map(([name, data]) => ({ name, count: data.count, value: data.value })),
+      amountWiseData: Object.entries(amountBuckets).map(([name, data]) => ({ name, count: data.count, value: data.value })),
       zoneData: Object.entries(zoneWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
       fosData: Object.entries(fosWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
-      confidenceData: Object.entries(confidenceWise).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
       ageingData: Object.entries(ageing).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
       followUpFosData: Object.entries(followUpByFos).map(([name, value]: [string, number]) => ({ name, value })),
       customerCategoryValueData: Object.entries(customerCategoryWise).map(([name, value]: [string, number]) => ({ name, value })),
@@ -1140,7 +1214,7 @@ export default function App() {
         })
         .sort((a, b) => a.raw.localeCompare(b.raw)),
     };
-  }, [quotations, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
+  }, [quotations, locFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
   const confidenceAnalysis = useMemo(() => {
     const fromDate = reportDateRange.from ? new Date(reportDateRange.from) : null;
@@ -1188,7 +1262,7 @@ export default function App() {
     const qCustomer = standardizeValue(q.customer);
     const qAccount = standardizeValue(q.account);
     const qFos = standardizeValue(q.fosName);
-    const qLob = standardizeValue(q.lob);
+    const qLoc = standardizeValue(q.loc);
     const qQuoteNo = standardizeValue(q.quoteNo);
     const qStatus = standardizeValue(q.status);
     const qZone = standardizeValue(q.zone);
@@ -1198,10 +1272,10 @@ export default function App() {
     const matchesSearch = qCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qAccount.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qFos.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      qLob.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qLoc.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qQuoteNo.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
+    const matchesLoc = locFilter.length === 0 || locFilter.includes(qLoc);
     const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
     const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
     const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
@@ -1223,9 +1297,9 @@ export default function App() {
       }
     }
     
-    return matchesSearch && matchesLob && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
+    return matchesSearch && matchesLoc && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
     });
-  }, [quotations, searchTerm, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
+  }, [quotations, searchTerm, locFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
   const uniqueFosNames = useMemo(() => Array.from(new Set(quotations.map(q => q.fosName).filter(Boolean))), [quotations]);
   const uniqueBranches = useMemo(() => Array.from(new Set(quotations.map(q => q.branch).filter(Boolean))), [quotations]);
@@ -1456,16 +1530,16 @@ export default function App() {
         {/* Shared Filters Bar */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
-            {/* LOB Filter */}
+            {/* LOC Filter */}
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOB Filter</label>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOC Filter</label>
               <MultiSelect 
                 options={[
                   'Filter', 'Core', 'Recon', 'Battery', 'Oil', 'Service', 'Growth Parts', 'Local Parts', 'Engine L/B', 'Oil - CAMC'
                 ]}
-                selected={lobFilter}
-                onChange={setLobFilter}
-                placeholder="Select LOBs..."
+                selected={locFilter}
+                onChange={setLocFilter}
+                placeholder="Select LOCs..."
               />
             </div>
 
@@ -1546,7 +1620,7 @@ export default function App() {
             </div>
             <button 
               onClick={() => { 
-                setLobFilter([]); 
+                setLocFilter([]); 
                 setStatusFilter([]);
                 setZoneFilter([]);
                 setCategoryFilter([]);
@@ -1650,24 +1724,20 @@ export default function App() {
             )}
 
             {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <StatCard 
                 title="Total Quotations" 
                 value={analytics.total} 
                 icon={<FileText size={20} />} 
                 color="blue"
+                mom={analytics.countMom}
               />
               <StatCard 
                 title="Quotation Value" 
                 value={`₹${analytics.totalValue.toLocaleString('en-IN')}`} 
                 icon={<IndianRupee size={20} />} 
                 color="green"
-              />
-              <StatCard 
-                title="High Confidence (>=75%)" 
-                value={`${analytics.highConfidenceCount} Quotes (₹${analytics.highConfidenceValue.toLocaleString('en-IN')})`} 
-                icon={<ShieldCheck size={20} />} 
-                color="orange"
+                mom={analytics.valueMom}
               />
               <StatCard 
                 title="High Value (>= ₹1 Lakh)" 
@@ -1679,9 +1749,95 @@ export default function App() {
 
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <ChartWrapper title="LOB wise Value (₹)">
+              <ChartWrapper title="Customer Category Value (%)">
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.lobData}>
+                  <PieChart>
+                    <Pie
+                      data={analytics.customerCategoryValueData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={4}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${formatIndianCurrency(value)}`}
+                    >
+                      {analytics.customerCategoryValueData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                    />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
+              <ChartWrapper title="Confidence Level (Value & Count)">
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={analytics.confidenceLevelData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
+                    <YAxis 
+                      yAxisId="left"
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                      tickFormatter={formatIndianAxis}
+                    />
+                    <YAxis 
+                      yAxisId="right"
+                      orientation="right"
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                    />
+                    <Tooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                    />
+                    <Legend verticalAlign="top" align="right" />
+                    <Bar yAxisId="left" dataKey="value" name="Quote Value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="count" name="Quote Count" stroke="#F7941E" strokeWidth={3} dot={{ r: 4 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
+              <ChartWrapper title="Amount Wise Distribution (Value & Count)">
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={analytics.amountWiseData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
+                    <YAxis 
+                      yAxisId="left"
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                      tickFormatter={formatIndianAxis}
+                    />
+                    <YAxis 
+                      yAxisId="right"
+                      orientation="right"
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fill: '#64748b', fontSize: 11}}
+                    />
+                    <Tooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                    />
+                    <Legend verticalAlign="top" align="right" />
+                    <Bar yAxisId="left" dataKey="value" name="Overall Value" fill="#8DC63F" radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="count" name="Quote Count" stroke="#00AEEF" strokeWidth={3} dot={{ r: 4 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
+              <ChartWrapper title="LOC wise Value (₹)">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={analytics.locData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <YAxis 
@@ -1697,32 +1853,6 @@ export default function App() {
                     />
                     <Bar dataKey="value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <ChartWrapper title="Status Distribution (%)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={analytics.statusData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={4}
-                      dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}%`}
-                    >
-                      {analytics.statusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => [`${value}%`, 'Percentage']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                  </PieChart>
                 </ResponsiveContainer>
               </ChartWrapper>
 
@@ -1778,32 +1908,6 @@ export default function App() {
                     <Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
                     <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <ChartWrapper title="Customer Category Value (%)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={analytics.customerCategoryValueData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={4}
-                      dataKey="value"
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {analytics.customerCategoryValueData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                  </PieChart>
                 </ResponsiveContainer>
               </ChartWrapper>
 
@@ -1863,8 +1967,10 @@ export default function App() {
                       <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
                         <th className="pb-4">Quote No</th>
                         <th className="pb-4">Customer</th>
-                        <th className="pb-4">LOB</th>
+                        <th className="pb-4">LOC</th>
                         <th className="pb-4">Status</th>
+                        <th className="pb-4">Status Remarks</th>
+                        <th className="pb-4">Follow-up Responsibility</th>
                         <th className="pb-4 text-right">Value</th>
                       </tr>
                     </thead>
@@ -1874,11 +1980,41 @@ export default function App() {
                           <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
                             <td className="py-4 text-sm text-slate-600">{q.customer}</td>
-                            <td className="py-4 text-xs font-medium text-slate-500">{q.lob}</td>
+                            <td className="py-4 text-xs font-medium text-slate-500">{q.loc}</td>
                             <td className="py-4">
                               <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
                                 {q.status}
                               </span>
+                            </td>
+                            <td className="py-4">
+                              <input 
+                                type="text"
+                                className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
+                                placeholder="Remarks..."
+                                value={q.statusRemarks || ''}
+                                onChange={async (e) => {
+                                  try {
+                                    await updateDoc(doc(db, 'quotations', q.id!), { statusRemarks: e.target.value });
+                                  } catch (err) {
+                                    console.error('Failed to update remarks:', err);
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td className="py-4">
+                              <input 
+                                type="text"
+                                className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
+                                placeholder="Responsibility..."
+                                value={q.followUpResponsibility || ''}
+                                onChange={async (e) => {
+                                  try {
+                                    await updateDoc(doc(db, 'quotations', q.id!), { followUpResponsibility: e.target.value });
+                                  } catch (err) {
+                                    console.error('Failed to update responsibility:', err);
+                                  }
+                                }}
+                              />
                             </td>
                             <td className="py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
                           </tr>
@@ -1923,8 +2059,10 @@ export default function App() {
                     <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <th className="px-6 py-4">Quote No</th>
                       <th className="px-6 py-4">Customer</th>
-                      <th className="px-6 py-4">LOB</th>
+                      <th className="px-6 py-4">LOC</th>
                       <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4">Status Remarks</th>
+                      <th className="px-6 py-4">Follow-up Responsibility</th>
                       <th className="px-6 py-4 text-right">Value</th>
                     </tr>
                   </thead>
@@ -1944,12 +2082,42 @@ export default function App() {
                           </button>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
+                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
                             {q.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <input 
+                            type="text"
+                            className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
+                            placeholder="Remarks..."
+                            value={q.statusRemarks || ''}
+                            onChange={async (e) => {
+                              try {
+                                await updateDoc(doc(db, 'quotations', q.id!), { statusRemarks: e.target.value });
+                              } catch (err) {
+                                console.error('Failed to update remarks:', err);
+                              }
+                            }}
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <input 
+                            type="text"
+                            className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
+                            placeholder="Responsibility..."
+                            value={q.followUpResponsibility || ''}
+                            onChange={async (e) => {
+                              try {
+                                await updateDoc(doc(db, 'quotations', q.id!), { followUpResponsibility: e.target.value });
+                              } catch (err) {
+                                console.error('Failed to update responsibility:', err);
+                              }
+                            }}
+                          />
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
                       </tr>
@@ -1984,7 +2152,7 @@ export default function App() {
                     <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <th className="px-6 py-4">Quote No</th>
                       <th className="px-6 py-4">Customer</th>
-                      <th className="px-6 py-4">LOB</th>
+                      <th className="px-6 py-4">LOC</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Value</th>
                     </tr>
@@ -2005,7 +2173,7 @@ export default function App() {
                           </button>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
+                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
@@ -2818,7 +2986,7 @@ export default function App() {
                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{q.customerCategory}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.lob}</span>
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900 text-sm">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</p>
@@ -3197,12 +3365,12 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOB (Line of Business)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOC (Line of Credit)</label>
                     <select 
                       required
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
                       value={formData.lob}
-                      onChange={(e) => setFormData({ ...formData, lob: e.target.value as Quotation['lob'] })}
+                      onChange={(e) => setFormData({ ...formData, lob: e.target.value as any })}
                     >
                       <option value="Filter">Filter</option>
                       <option value="Core">Core</option>
@@ -4064,7 +4232,7 @@ export default function App() {
   );
 }
 
-function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: React.ReactNode, color: string }) {
+function StatCard({ title, value, icon, color, mom }: { title: string, value: string | number, icon: React.ReactNode, color: string, mom?: number }) {
   const colors: Record<string, string> = {
     blue: 'bg-[#00AEEF] text-white shadow-[#00AEEF]/20',
     green: 'bg-[#8DC63F] text-white shadow-[#8DC63F]/20',
@@ -4079,6 +4247,12 @@ function StatCard({ title, value, icon, color }: { title: string, value: string 
       </div>
       <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">{title}</p>
       <h3 className="text-2xl font-bold text-slate-900 mt-1 tracking-tight">{value}</h3>
+      {mom !== undefined && (
+        <div className={`flex items-center gap-1 mt-2 text-[10px] font-bold ${mom >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+          {mom >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+          <span>{Math.abs(mom).toFixed(1)}% MOM</span>
+        </div>
+      )}
     </div>
   );
 }

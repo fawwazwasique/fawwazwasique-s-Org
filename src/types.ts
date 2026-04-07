@@ -37,7 +37,9 @@ export interface Quotation {
   visitDate: Timestamp | string;
   visitOutcome: string;
   followUpDate: Timestamp | string;
-  lob: 'Filter' | 'Core' | 'Recon' | 'Battery' | 'Oil' | 'Service' | 'Growth Parts' | 'Local Parts' | 'Engine L/B' | 'Oil - CAMC';
+  loc: 'Filter' | 'Core' | 'Recon' | 'Battery' | 'Oil' | 'Service' | 'Growth Parts' | 'Local Parts' | 'Engine L/B' | 'Oil - CAMC';
+  followUpResponsibility?: string;
+  statusRemarks?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   uid: string;
