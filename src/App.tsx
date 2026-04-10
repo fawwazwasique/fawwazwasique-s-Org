@@ -123,7 +123,17 @@ const formatDateDisplay = (date: any, formatStr: string = 'dd MMM yyyy') => {
 };
 
 const formatIndianCurrency = (value: number) => {
-  return `₹${Math.round(value).toLocaleString('en-IN')}`;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(Math.round(value));
+};
+
+const formatNumber = (value: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 0,
+  }).format(Math.round(value));
 };
 
 const formatIndianAxis = (value: number) => {
@@ -1813,12 +1823,21 @@ export default function App() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => {
-                        const total = analytics.customerCategoryValueData.reduce((sum, item) => sum + item.value, 0);
-                        const percent = Math.round((value / total) * 100);
-                        return [`${formatIndianCurrency(value)} (${percent}%)`, 'Value'];
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.customerCategoryValueData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-1">{data.name}</p>
+                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(data.value)}</p>
+                              <p className="text-xs text-slate-500">Contribution: {percent}%</p>
+                            </div>
+                          );
+                        }
+                        return null;
                       }}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
                   </PieChart>
@@ -1846,11 +1865,24 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number, name: string) => {
-                        if (name === 'Quote Value') return [formatIndianCurrency(value), name];
-                        return [value.toLocaleString('en-IN'), name];
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-2">{label}</p>
+                              {payload.map((entry: any, index: number) => (
+                                <div key={index} className="flex items-center justify-between gap-4 mb-1 last:mb-0">
+                                  <span className="text-xs text-slate-600">{entry.name}:</span>
+                                  <span className="text-xs font-bold text-slate-900">
+                                    {entry.name.toLowerCase().includes('value') ? formatIndianCurrency(entry.value) : formatNumber(entry.value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return null;
                       }}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="top" align="right" />
                     <Bar yAxisId="left" dataKey="value" name="Quote Value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
@@ -1880,11 +1912,24 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number, name: string) => {
-                        if (name === 'Overall Value') return [formatIndianCurrency(value), name];
-                        return [value.toLocaleString('en-IN'), name];
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-2">{label}</p>
+                              {payload.map((entry: any, index: number) => (
+                                <div key={index} className="flex items-center justify-between gap-4 mb-1 last:mb-0">
+                                  <span className="text-xs text-slate-600">{entry.name}:</span>
+                                  <span className="text-xs font-bold text-slate-900">
+                                    {entry.name.toLowerCase().includes('value') ? formatIndianCurrency(entry.value) : formatNumber(entry.value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return null;
                       }}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="top" align="right" />
                     <Bar yAxisId="left" dataKey="value" name="Overall Value" fill="#8DC63F" radius={[4, 4, 0, 0]} />
@@ -1906,8 +1951,17 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
                     <Bar dataKey="value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -2011,7 +2065,20 @@ export default function App() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                    <Tooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+                              <p className="text-xs font-bold text-slate-900">Follow-ups: {formatNumber(payload[0].value)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
                     <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2030,8 +2097,17 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
                     <Bar dataKey="value" fill="#ec4899" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -2052,8 +2128,17 @@ export default function App() {
                     <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
+                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
                     <Bar dataKey="value" fill="#8DC63F" radius={[0, 4, 4, 0]} />
                   </BarChart>
