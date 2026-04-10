@@ -90,7 +90,8 @@ const standardizeValue = (val: string): string => {
   if (upper === 'NEPI') return 'NEPI';
   if (upper === 'CAMC') return 'CAMC';
   
-  return trimmed;
+  // For other values, use a consistent case (Title Case) to avoid duplicates
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 };
 
 const formatExpectedMonth = (value: any) => {
@@ -122,13 +123,13 @@ const formatDateDisplay = (date: any, formatStr: string = 'dd MMM yyyy') => {
 };
 
 const formatIndianCurrency = (value: number) => {
-  return `₹${value.toLocaleString('en-IN')}`;
+  return `₹${Math.round(value).toLocaleString('en-IN')}`;
 };
 
 const formatIndianAxis = (value: number) => {
-  if (value >= 10000000) return `₹${(value / 10000000).toFixed(1)}Cr`;
-  if (value >= 100000) return `₹${(value / 100000).toFixed(1)}L`;
-  return `₹${value.toLocaleString('en-IN')}`;
+  if (value >= 10000000) return `₹${Math.round(value / 10000000)}Cr`;
+  if (value >= 100000) return `₹${Math.round(value / 100000)}L`;
+  return `₹${Math.round(value).toLocaleString('en-IN')}`;
 };
 
 export default function App() {
@@ -1159,7 +1160,8 @@ export default function App() {
       let month = 'Unknown';
       if (q.expectedMonth && q.expectedMonth !== '#N/A') {
         if (typeof q.expectedMonth === 'string') {
-          month = q.expectedMonth;
+          const m = q.expectedMonth.trim();
+          month = m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
         } else if (typeof (q.expectedMonth as any).toDate === 'function') {
           month = format((q.expectedMonth as any).toDate(), 'yyyy-MM');
         }
@@ -1297,7 +1299,7 @@ export default function App() {
       totalChanges,
       positiveChanges,
       negativeChanges,
-      avgChange: totalChanges > 0 ? (totalValueChange / totalChanges).toFixed(1) : 0
+      avgChange: totalChanges > 0 ? Math.round(totalValueChange / totalChanges) : 0
     };
   }, [quotations, reportDateRange]);
 
@@ -1804,14 +1806,18 @@ export default function App() {
                       outerRadius={100}
                       paddingAngle={4}
                       dataKey="value"
-                      label={({ name, value }) => `${name}: ${formatIndianCurrency(value)}`}
+                      label={({ name, value, percent }) => `${name}: ${formatIndianCurrency(value)} (${Math.round(percent * 100)}%)`}
                     >
                       {analytics.customerCategoryValueData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => [formatIndianCurrency(value), 'Value']}
+                      formatter={(value: number) => {
+                        const total = analytics.customerCategoryValueData.reduce((sum, item) => sum + item.value, 0);
+                        const percent = Math.round((value / total) * 100);
+                        return [`${formatIndianCurrency(value)} (${percent}%)`, 'Value'];
+                      }}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
@@ -1840,6 +1846,10 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
+                      formatter={(value: number, name: string) => {
+                        if (name === 'Quote Value') return [formatIndianCurrency(value), name];
+                        return [value.toLocaleString('en-IN'), name];
+                      }}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="top" align="right" />
@@ -1870,6 +1880,10 @@ export default function App() {
                     />
                     <Tooltip 
                       cursor={{fill: '#f1f5f9'}} 
+                      formatter={(value: number, name: string) => {
+                        if (name === 'Overall Value') return [formatIndianCurrency(value), name];
+                        return [value.toLocaleString('en-IN'), name];
+                      }}
                       contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
                     />
                     <Legend verticalAlign="top" align="right" />
@@ -1980,7 +1994,7 @@ export default function App() {
                                     style={{ width: `${Math.min(achievementPercent, 100)}%` }}
                                   />
                                 </div>
-                                <span className="text-xs font-bold text-slate-700">{achievementPercent.toFixed(1)}%</span>
+                                <span className="text-xs font-bold text-slate-700">{Math.round(achievementPercent)}%</span>
                               </div>
                             </td>
                           </tr>
@@ -4397,7 +4411,7 @@ function StatCard({ title, value, icon, color, mom }: { title: string, value: st
       {mom !== undefined && (
         <div className={`flex items-center gap-1 mt-2 text-[10px] font-bold ${mom >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
           {mom >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-          <span>{Math.abs(mom).toFixed(1)}% MOM</span>
+          <span>{Math.round(Math.abs(mom))}% MOM</span>
         </div>
       )}
     </div>
