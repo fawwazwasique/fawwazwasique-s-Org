@@ -215,7 +215,7 @@ export default function App() {
   const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
   const [fosMappingToDelete, setFosMappingToDelete] = useState<string | null>(null);
-  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string, isTodayOnly?: boolean } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -1066,21 +1066,35 @@ export default function App() {
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const handleDeleteAllData = (collectionName: string, label: string) => {
-    setBulkDeleteConfirmation({ collection: collectionName, label });
+    setBulkDeleteConfirmation({ collection: collectionName, label, isTodayOnly: false });
+  };
+
+  const handleDeleteTodaysUploads = () => {
+    setBulkDeleteConfirmation({ collection: 'quotations', label: "Today's Quotations", isTodayOnly: true });
   };
 
   const confirmBulkDelete = async () => {
     if (!bulkDeleteConfirmation) return;
     
-    const { collection: collectionName, label } = bulkDeleteConfirmation;
+    const { collection: collectionName, label, isTodayOnly } = bulkDeleteConfirmation;
     setBulkDeleteConfirmation(null);
     setIsDeletingAll(true);
     
     try {
-      // In a real scenario with many docs, we'd batch delete. 
-      // For this app, we'll iterate through the local state IDs to delete from Firestore.
       let targetIds: string[] = [];
-      if (collectionName === 'quotations') targetIds = quotations.map(q => q.id!);
+      if (collectionName === 'quotations') {
+        if (isTodayOnly) {
+          const today = format(new Date(), 'yyyy-MM-dd');
+          targetIds = quotations
+            .filter(q => {
+              const date = q.updatedAt?.toDate();
+              return date && format(date, 'yyyy-MM-dd') === today;
+            })
+            .map(q => q.id!);
+        } else {
+          targetIds = quotations.map(q => q.id!);
+        }
+      }
       else if (collectionName === 'fos') targetIds = fosList.map(f => f.id!);
       else if (collectionName === 'visits') targetIds = visits.map(v => v.id!);
       else if (collectionName === 'masterAssets') targetIds = masterAssets.map(m => m.id!);
@@ -3241,6 +3255,38 @@ export default function App() {
                     >
                       <Trash2 size={16} />
                       Clear Master Assets
+                    </button>
+                  </div>
+
+                  {/* Today's Uploads Cleanup */}
+                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-amber-500 shadow-sm">
+                          <Clock size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Today's Uploads</p>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                            {quotations.filter(q => {
+                              const date = q.updatedAt?.toDate();
+                              return date && format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                            }).length} Records
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">Delete all quotations created or updated today. Useful for fixing bulk upload mistakes.</p>
+                    <button 
+                      onClick={() => handleDeleteTodaysUploads()}
+                      disabled={isDeletingAll || quotations.filter(q => {
+                        const date = q.updatedAt?.toDate();
+                        return date && format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                      }).length === 0}
+                      className="w-full py-3 bg-white hover:bg-amber-50 text-amber-600 border border-amber-100 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={16} />
+                      Delete Today's Quotes
                     </button>
                   </div>
                 </div>
