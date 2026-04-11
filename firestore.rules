@@ -27,7 +27,7 @@ service cloud.firestore {
     //   - fosName: string
     //   - billingAddress: string
     //   - shippingAddress: string
-    //   - zone: string (in ['East', 'West', 'North', 'South', 'Central'])
+    //   - zone: string (in ['East', 'West', 'North', 'South', 'Central', 'Attibele'])
     //   - customer: string
     //   - customerCategory: string (in ['AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC'])
     //   - confidence: number
@@ -52,7 +52,16 @@ service cloud.firestore {
     // Document ID: {assetId}
     // Fields:
     //   - assetNo: string (required)
-    //   - category: string (required, in ['AMC', 'NON - AMC', 'NEPI', 'CAMC'])
+    //   - customerCategory: string (required)
+    //   - customerName: string (optional)
+    //
+    // Collection: fosMappings
+    // Document ID: {mappingId}
+    // Fields:
+    //   - customerCategory: string (required)
+    //   - zone: string (required)
+    //   - customerName: string (optional)
+    //   - fosName: string (required)
     //
     // Collection: fos
     // Document ID: {fosId}
@@ -121,7 +130,7 @@ service cloud.firestore {
 
     function isValidQuotation(data) {
       let validLobs = ['Core', 'RRA Kit', 'Bearing & Greasing', 'Controller conversion', 'Hose & Belt', 'Filters', 'Coolant', 'Radiwash', 'Recon parts', 'Battery', 'CC', 'Oil', 'Local Parts', 'New Engines', 'Recon Engine', 'DFK', 'RAS', 'RECD', 'DATUM', 'Service'];
-      let validZones = ['East', 'West', 'North', 'South', 'Central'];
+      let validZones = ['East', 'West', 'North', 'South', 'Central', 'Attibele'];
       let validCustomerCategories = ['AMC', 'NON - AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC'];
       
       return hasRequiredFields(['quoteNo', 'account', 'lob', 'uid', 'createdAt', 'updatedAt']) &&
@@ -149,8 +158,10 @@ service cloud.firestore {
     }
 
     function isValidFOS(data) {
+      let validZones = ['East', 'West', 'North', 'South', 'Central', 'Attibele'];
       return hasRequiredFields(['name', 'employeeId']) &&
-             data.name is string && data.employeeId is string;
+             data.name is string && data.employeeId is string &&
+             (!('zone' in data) || data.zone in validZones);
     }
 
     function isValidVisit(data) {
@@ -164,6 +175,22 @@ service cloud.firestore {
              (!('businessGenerated' in data) || data.businessGenerated is number) &&
              (!('nextFollowUpDate' in data) || data.nextFollowUpDate is timestamp) &&
              (!('nextVisitDate' in data) || data.nextVisitDate is timestamp);
+    }
+
+    function isValidFOSMapping(data) {
+      let validZones = ['East', 'West', 'North', 'South', 'Central', 'Attibele'];
+      return hasRequiredFields(['customerCategory', 'zone', 'fosName']) &&
+             data.customerCategory is string &&
+             data.zone in validZones &&
+             data.fosName is string &&
+             (!('customerName' in data) || data.customerName is string);
+    }
+
+    function isValidMasterAsset(data) {
+      return hasRequiredFields(['assetNo', 'customerCategory']) &&
+             data.assetNo is string &&
+             data.customerCategory is string &&
+             (!('customerName' in data) || data.customerName is string);
     }
 
     // ===============================================================
@@ -201,8 +228,15 @@ service cloud.firestore {
 
     match /masterAssets/{assetId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if true;
+      allow create: if isValidMasterAsset(request.resource.data);
+      allow update: if isValidMasterAsset(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /fosMappings/{mappingId} {
+      allow read: if true;
+      allow create: if isValidFOSMapping(request.resource.data);
+      allow update: if isValidFOSMapping(request.resource.data);
       allow delete: if true;
     }
   }

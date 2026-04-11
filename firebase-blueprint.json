@@ -24,7 +24,7 @@
         "fosName": { "type": "string" },
         "billingAddress": { "type": "string" },
         "shippingAddress": { "type": "string" },
-        "zone": { "type": "string" },
+        "zone": { "type": "string", "enum": ["East", "West", "North", "South", "Central", "Attibele"] },
         "customer": { "type": "string" },
         "customerCategory": { "type": "string", "enum": ["AMC", "NON - AMC", "Non - AMC", "Paid", "NEPI", "CAMC"], "description": "Category of the customer" },
         "confidence": { "type": "number", "description": "Confidence level in percentage" },
@@ -79,7 +79,7 @@
         "name": { "type": "string" },
         "employeeId": { "type": "string" },
         "branch": { "type": "string" },
-        "zone": { "type": "string" },
+        "zone": { "type": "string", "enum": ["East", "West", "North", "South", "Central", "Attibele"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "employeeId"]
@@ -107,13 +107,26 @@
     },
     "MasterAsset": {
       "title": "Master Asset",
-      "description": "Mapping of Asset No. to Customer Category.",
+      "description": "Mapping of Asset No. to Customer Category and Name.",
       "type": "object",
       "properties": {
         "assetNo": { "type": "string" },
-        "category": { "type": "string", "enum": ["AMC", "NON - AMC", "NEPI", "CAMC"] }
+        "customerCategory": { "type": "string" },
+        "customerName": { "type": "string" }
       },
-      "required": ["assetNo", "category"]
+      "required": ["assetNo", "customerCategory"]
+    },
+    "FOSMapping": {
+      "title": "FOS Mapping",
+      "description": "Mapping of Customer Category, Zone, and Customer Name to FOS Name.",
+      "type": "object",
+      "properties": {
+        "customerCategory": { "type": "string" },
+        "zone": { "type": "string", "enum": ["East", "West", "North", "South", "Central", "Attibele"] },
+        "customerName": { "type": "string" },
+        "fosName": { "type": "string" }
+      },
+      "required": ["customerCategory", "zone", "fosName"]
     }
   },
   "firestore": {
@@ -136,6 +149,10 @@
     "/masterAssets/{assetId}": {
       "schema": "MasterAsset",
       "description": "Master sheet for asset to category mapping."
+    },
+    "/fosMappings/{mappingId}": {
+      "schema": "FOSMapping",
+      "description": "Master sheet for FOS assignment rules."
     }
   }
 }

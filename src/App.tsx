@@ -63,7 +63,7 @@ import {
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
-import { Quotation, FOS, FOSVisit, MasterAsset } from './types';
+import { Quotation, FOS, FOSVisit, MasterAsset, FOSMapping } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 
@@ -78,6 +78,15 @@ const EthenLogo = ({ className = "w-full h-full" }: { className?: string }) => (
 
 const COLORS = ['#00AEEF', '#8DC63F', '#F7941E', '#64748b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316'];
 
+const getCSVValue = (row: any, ...keys: string[]): string => {
+  const rowKeys = Object.keys(row);
+  for (const key of keys) {
+    const foundKey = rowKeys.find(rk => rk.toLowerCase().trim() === key.toLowerCase().trim());
+    if (foundKey) return row[foundKey] || '';
+  }
+  return '';
+};
+
 const standardizeValue = (val: string): string => {
   if (!val) return '';
   const trimmed = val.trim();
@@ -90,8 +99,8 @@ const standardizeValue = (val: string): string => {
   if (upper === 'NEPI') return 'NEPI';
   if (upper === 'CAMC') return 'CAMC';
   
-  // For other values, use a consistent case (Title Case) to avoid duplicates
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  // For other values, preserve original casing but trim
+  return trimmed;
 };
 
 const formatExpectedMonth = (value: any) => {
@@ -146,12 +155,14 @@ export default function App() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'fos-master' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [masterSearchTerm, setMasterSearchTerm] = useState('');
+  const [fosMappingSearchTerm, setFosMappingSearchTerm] = useState('');
   const [fosList, setFosList] = useState<FOS[]>([]);
   const [visits, setVisits] = useState<FOSVisit[]>([]);
   const [masterAssets, setMasterAssets] = useState<MasterAsset[]>([]);
+  const [fosMappings, setFosMappings] = useState<FOSMapping[]>([]);
   const [locFilter, setLocFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [zoneFilter, setZoneFilter] = useState<string[]>([]);
@@ -198,15 +209,18 @@ export default function App() {
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [editingVisit, setEditingVisit] = useState<FOSVisit | null>(null);
   const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
+  const [isFosMappingModalOpen, setIsFosMappingModalOpen] = useState(false);
   const [historyQuotation, setHistoryQuotation] = useState<Quotation | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
   const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
+  const [fosMappingToDelete, setFosMappingToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [masterFile, setMasterFile] = useState<File | null>(null);
+  const [fosMappingFile, setFosMappingFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
 
@@ -294,6 +308,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const q = query(collection(db, 'fosMappings'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as FOSMapping[];
+      setFosMappings(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'fosMappings');
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setShowWelcome(false);
     }, 3500);
@@ -337,16 +366,6 @@ export default function App() {
       skipEmptyLines: true,
       complete: async (results) => {
         // Deduplicate CSV items internally first (last one wins)
-        const getValue = (row: any, ...keys: string[]): any => {
-          for (const key of keys) {
-            if (row[key] !== undefined && row[key] !== null) return row[key];
-            const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const actualKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedKey);
-            if (actualKey) return row[actualKey];
-          }
-          return undefined;
-        };
-
         const parseNumber = (val: any): number => {
           if (val === undefined || val === null || val === '') return 0;
           // Remove currency symbols and thousands separators, keep decimal point and minus sign
@@ -369,9 +388,9 @@ export default function App() {
         const uniqueCsvItems = new Map<string, any>();
         results.data.forEach((row: any) => {
           try {
-            const quantity = parseNumber(getValue(row, 'Quantity')) || 1;
-            const unitPrice = parseNumber(getValue(row, 'Unit Price', 'UnitPrice', 'Unit Cost'));
-            const quoteNo = standardizeValue(getValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
+            const quantity = parseNumber(getCSVValue(row, 'Quantity')) || 1;
+            const unitPrice = parseNumber(getCSVValue(row, 'Unit Price', 'UnitPrice', 'Unit Cost'));
+            const quoteNo = standardizeValue(getCSVValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
             if (!quoteNo) return;
 
             const baseAmount = quantity * unitPrice;
@@ -381,53 +400,76 @@ export default function App() {
               existing.baseAmount += baseAmount;
               existing.quantity += quantity;
               // Update metadata if it was #N/A but current row has data
-              if (existing.item === '#N/A') existing.item = standardizeWithNA(getValue(row, 'Item') || '');
-              if (existing.itemDescription === '#N/A') existing.itemDescription = standardizeWithNA(getValue(row, 'Item Description', 'Description') || '');
+              if (existing.item === '#N/A') existing.item = standardizeWithNA(getCSVValue(row, 'Item') || '');
+              if (existing.itemDescription === '#N/A') existing.itemDescription = standardizeWithNA(getCSVValue(row, 'Item Description', 'Description') || '');
               return;
             }
 
-            const assetNo = standardizeWithNA(getValue(row, 'Asset', 'Asset No', 'AssetNo') || '');
-            let customerCategory = standardizeValue(getValue(row, 'Customer Category', 'Category') || 'Paid') as Quotation['customerCategory'];
+            const assetNo = standardizeWithNA(getCSVValue(row, 'Asset', 'Asset No', 'AssetNo') || '');
+            let customerCategory = standardizeValue(getCSVValue(row, 'Customer Category', 'Category') || 'Paid') as Quotation['customerCategory'];
+            const customer = standardizeWithNA(getCSVValue(row, 'Customer') || '');
+            const zone = standardizeWithNA(getCSVValue(row, 'Zone') || 'Central');
+            let fosName = standardizeWithNA(getCSVValue(row, 'FOS Name', 'FOS') || '');
 
-            // Lookup in masterAssets for automatic category suggestion
-            if (assetNo && assetNo !== '#N/A') {
-              const mapping = masterAssets.find(m => standardizeValue(m.assetNo) === assetNo);
-              if (mapping) {
-                customerCategory = standardizeValue(mapping.category) as Quotation['customerCategory'];
+            // 1. Lookup Category from Asset Master
+            const assetMapping = assetNo !== '#N/A' ? masterAssets.find(m => m.assetNo && standardizeValue(m.assetNo) === standardizeValue(assetNo)) : null;
+            if (assetMapping && assetMapping.customerCategory) {
+              customerCategory = standardizeValue(assetMapping.customerCategory) as Quotation['customerCategory'];
+            }
+
+            // 2. Lookup FOS from FOS Master
+            // Try (Category + Zone + Customer) mapping
+            const fullMapping = fosMappings.find(m => 
+              m.customerName && customer !== '#N/A' && standardizeValue(m.customerName) === standardizeValue(customer) &&
+              m.customerCategory && standardizeValue(m.customerCategory) === standardizeValue(customerCategory) &&
+              m.zone && zone !== '#N/A' && standardizeValue(m.zone) === standardizeValue(zone)
+            );
+            
+            if (fullMapping && fullMapping.fosName) {
+              fosName = fullMapping.fosName;
+            } else {
+              // Try (Category + Zone) mapping
+              const catZoneMapping = fosMappings.find(m => 
+                (!m.customerName || m.customerName === '') &&
+                m.customerCategory && standardizeValue(m.customerCategory) === standardizeValue(customerCategory) &&
+                m.zone && zone !== '#N/A' && standardizeValue(m.zone) === standardizeValue(zone)
+              );
+              if (catZoneMapping && catZoneMapping.fosName) {
+                fosName = catZoneMapping.fosName;
               }
             }
 
-            const rawConfidence = standardizeValue(getValue(row, 'Confidence', 'Confidence Level') || '');
+            const rawConfidence = standardizeValue(getCSVValue(row, 'Confidence', 'Confidence Level') || '');
             const confidence = rawConfidence === '' ? 10 : parseNumber(rawConfidence);
 
             uniqueCsvItems.set(quoteNo, {
               quoteNo,
-              opportunityNumber: standardizeWithNA(getValue(row, 'Opportunity Number', 'OpportunityNo') || ''),
-              quoteLineCreatedDate: parseDateOrNA(getValue(row, 'Quote Line: Created Date', 'Created Date', 'Date')),
-              account: standardizeWithNA(getValue(row, 'Account') || ''),
-              item: standardizeWithNA(getValue(row, 'Item') || ''),
-              itemDescription: standardizeWithNA(getValue(row, 'Item Description', 'Description') || ''),
+              opportunityNumber: standardizeWithNA(getCSVValue(row, 'Opportunity Number', 'OpportunityNo') || ''),
+              quoteLineCreatedDate: parseDateOrNA(getCSVValue(row, 'Quote Line: Created Date', 'Created Date', 'Date')),
+              account: standardizeWithNA(getCSVValue(row, 'Account') || ''),
+              item: standardizeWithNA(getCSVValue(row, 'Item') || ''),
+              itemDescription: standardizeWithNA(getCSVValue(row, 'Item Description', 'Description') || ''),
               quantity: quantity,
               unitPrice: unitPrice,
               baseAmount: baseAmount,
-              status: standardizeWithNA(getValue(row, 'Status') || 'Submitted'),
-              saleOrder: standardizeWithNA(getValue(row, 'Sale Order', 'SaleOrder') || ''),
-              branch: standardizeWithNA(getValue(row, 'Branch') || ''),
-              quoteLineCreatedBy: standardizeWithNA(getValue(row, 'Quote Line: Created By', 'Created By') || ''),
-              remarks: standardizeWithNA(getValue(row, 'Remarks') || ''),
+              status: standardizeWithNA(getCSVValue(row, 'Status') || 'Submitted'),
+              saleOrder: standardizeWithNA(getCSVValue(row, 'Sale Order', 'SaleOrder') || ''),
+              branch: standardizeWithNA(getCSVValue(row, 'Branch') || ''),
+              quoteLineCreatedBy: standardizeWithNA(getCSVValue(row, 'Quote Line: Created By', 'Created By') || ''),
+              remarks: standardizeWithNA(getCSVValue(row, 'Remarks') || ''),
               asset: assetNo,
-              fosName: standardizeWithNA(getValue(row, 'FOS Name', 'FOS') || ''),
-              billingAddress: standardizeWithNA(getValue(row, 'Billing Address') || ''),
-              shippingAddress: standardizeWithNA(getValue(row, 'Shipping Address') || ''),
-              zone: standardizeWithNA(getValue(row, 'Zone') || 'Central'),
-              customer: standardizeWithNA(getValue(row, 'Customer') || ''),
+              fosName: fosName,
+              billingAddress: standardizeWithNA(getCSVValue(row, 'Billing Address') || ''),
+              shippingAddress: standardizeWithNA(getCSVValue(row, 'Shipping Address') || ''),
+              zone: zone,
+              customer: customer,
               confidence: confidence,
-              visitDate: parseDateOrNA(getValue(row, 'Visit Date')),
-              visitOutcome: standardizeWithNA(getValue(row, 'Visit Outcome') || ''),
-              followUpDate: parseDateOrNA(getValue(row, 'Follow up', 'Follow up Date')),
-              loc: standardizeValue(getValue(row, 'LOC') || getValue(row, 'LOB') || 'Service') as Quotation['loc'],
+              visitDate: parseDateOrNA(getCSVValue(row, 'Visit Date')),
+              visitOutcome: standardizeWithNA(getCSVValue(row, 'Visit Outcome') || ''),
+              followUpDate: parseDateOrNA(getCSVValue(row, 'Follow up', 'Follow up Date')),
+              loc: standardizeValue(getCSVValue(row, 'LOC') || getCSVValue(row, 'LOB') || 'Service') as Quotation['loc'],
               customerCategory: customerCategory,
-              expectedMonth: standardizeWithNA(getValue(row, 'Expected Month') || ''),
+              expectedMonth: standardizeWithNA(getCSVValue(row, 'Expected Month') || ''),
               uid: 'guest',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -526,23 +568,30 @@ export default function App() {
       complete: async (results) => {
         try {
           const promises = results.data.map((row: any) => {
-            const assetNo = standardizeValue(row['Asset No.'] || row['Asset No'] || row['assetNo'] || '');
-            const category = standardizeValue(row['Category'] || row['category'] || '');
-            if (!assetNo || !category) return null;
+            const assetNo = standardizeValue(getCSVValue(row, 'Asset No.', 'Asset No', 'AssetNo', 'Asset'));
+            const customerCategory = standardizeValue(getCSVValue(row, 'Customer Category', 'Category', 'customerCategory'));
+            const customerName = standardizeValue(getCSVValue(row, 'Customer Name', 'Customer', 'customerName'));
+            
+            if (!assetNo) return null;
             
             return addDoc(collection(db, 'masterAssets'), {
               assetNo,
-              category
+              customerCategory,
+              customerName
             });
           }).filter(p => p !== null);
 
           await Promise.all(promises);
           setIsMasterModalOpen(false);
           setMasterFile(null);
-          setToast({ message: `Successfully uploaded ${promises.length} master asset mappings`, type: 'success' });
+          if (promises.length === 0) {
+            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
+          } else {
+            setToast({ message: `Successfully uploaded ${promises.length} asset mappings`, type: 'success' });
+          }
         } catch (error) {
           handleFirestoreError(error, OperationType.CREATE, 'masterAssets');
-          setToast({ message: 'Failed to upload master assets', type: 'error' });
+          setToast({ message: 'Failed to upload asset master', type: 'error' });
         } finally {
           setIsUploading(false);
         }
@@ -555,6 +604,124 @@ export default function App() {
     });
   };
 
+  const handleFosMappingUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fosMappingFile) return;
+
+    setIsUploading(true);
+    Papa.parse(fosMappingFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const promises = results.data.map((row: any) => {
+            const customerCategory = standardizeValue(getCSVValue(row, 'Customer Category', 'Category', 'customerCategory'));
+            const zone = standardizeValue(getCSVValue(row, 'Zone', 'zone'));
+            const customerName = standardizeValue(getCSVValue(row, 'Customer Name', 'Customer', 'customerName'));
+            const fosName = standardizeValue(getCSVValue(row, 'FOS Name', 'FOS', 'fosName'));
+            
+            if (!customerCategory || !zone || !fosName) return null;
+            
+            return addDoc(collection(db, 'fosMappings'), {
+              customerCategory,
+              zone,
+              customerName,
+              fosName
+            });
+          }).filter(p => p !== null);
+
+          await Promise.all(promises);
+          setIsFosMappingModalOpen(false);
+          setFosMappingFile(null);
+          if (promises.length === 0) {
+            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
+          } else {
+            setToast({ message: `Successfully uploaded ${promises.length} FOS mappings`, type: 'success' });
+          }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.CREATE, 'fosMappings');
+          setToast({ message: 'Failed to upload FOS master', type: 'error' });
+        } finally {
+          setIsUploading(false);
+        }
+      },
+      error: (error) => {
+        console.error('CSV Parse Error:', error);
+        setToast({ message: 'Error parsing CSV file. Please check the format.', type: 'error' });
+        setIsUploading(false);
+      }
+    });
+  };
+
+  const syncFosAssignments = async () => {
+    if (isUploading) return;
+    setIsUploading(true);
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+
+      const mappingMap = new Map<string, string>();
+      const categoryZoneMap = new Map<string, string>();
+
+      fosMappings.forEach(m => {
+        const fos = m.fosName;
+        if (!fos) return;
+        
+        const cat = standardizeValue(m.customerCategory || '');
+        const zone = standardizeValue(m.zone || '');
+        const cust = standardizeValue(m.customerName || '');
+
+        if (cat && zone && cust) {
+          mappingMap.set(`${cat}|${zone}|${cust}`, fos);
+        } else if (cat && zone) {
+          categoryZoneMap.set(`${cat}|${zone}`, fos);
+        }
+      });
+
+      quotations.forEach(q => {
+        let targetFos = '';
+        
+        const cat = standardizeValue(q.customerCategory || '');
+        const zone = standardizeValue(q.zone || '');
+        const cust = standardizeValue(q.customer || '');
+        
+        // Try (Category + Zone + Customer) mapping
+        const fullKey = `${cat}|${zone}|${cust}`;
+        if (mappingMap.has(fullKey)) {
+          targetFos = mappingMap.get(fullKey)!;
+        }
+
+        if (!targetFos) {
+          // Try (Category + Zone) mapping
+          const catZoneKey = `${cat}|${zone}`;
+          if (categoryZoneMap.has(catZoneKey)) {
+            targetFos = categoryZoneMap.get(catZoneKey)!;
+          }
+        }
+
+        if (targetFos && q.fosName !== targetFos) {
+          batch.update(doc(db, 'quotations', q.id!), {
+            fosName: targetFos,
+            updatedAt: serverTimestamp()
+          });
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        setToast({ message: `Successfully updated FOS for ${count} quotations`, type: 'success' });
+      } else {
+        setToast({ message: 'No updates needed based on current FOS master sheet', type: 'success' });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'quotations');
+      setToast({ message: 'Failed to sync FOS assignments', type: 'error' });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const downloadTemplate = () => {
     const headers = [
       'Quote No.', 'Opportunity Number', 'Quote Line: Created Date', 'Account', 'Item', 'Item Description', 
@@ -565,7 +732,7 @@ export default function App() {
     const exampleRow = [
       'Q-001', 'OPP-123', '2024-12-01', 'Acme Corp', 'UPS 10kVA', 'Online UPS', 
       '1', '50000', 'Submitted', 'SO-456', 'Mumbai', 'Admin', 'Urgent', 
-      'Asset-001', 'John Doe', 'Address 1', 'Address 2', 'Central', 'Acme Corp', '75', 
+      'Asset-001', 'John Doe', 'Address 1', 'Address 2', 'Attibele', 'Acme Corp', '75', 
       '2024-12-05', 'Positive', '2024-12-10', 'Service', 'Paid', '2024-12'
     ];
     const csvContent = headers.join(',') + '\n' + exampleRow.join(',');
@@ -574,6 +741,32 @@ export default function App() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'quotation_template.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const downloadMasterTemplate = () => {
+    const headers = ['Asset No.', 'Customer Name', 'Customer Category'];
+    const exampleRow = ['Asset-001', 'ABC Customer', 'AMC'];
+    const csvContent = headers.join(',') + '\n' + exampleRow.join(',');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'asset_master_template.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const downloadFosMappingTemplate = () => {
+    const headers = ['Customer Category', 'Zone', 'Customer Name', 'FOS Name'];
+    const exampleRow = ['AMC', 'Attibele', '', 'John Doe'];
+    const csvContent = headers.join(',') + '\n' + exampleRow.join(',');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'fos_mapping_template.csv';
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -973,6 +1166,19 @@ export default function App() {
       setToast({ message: 'Failed to delete mapping', type: 'error' });
     } finally {
       setMasterAssetToDelete(null);
+    }
+  };
+
+  const confirmFosMappingDelete = async () => {
+    if (!fosMappingToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'fosMappings', fosMappingToDelete));
+      setToast({ message: 'FOS mapping deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'fosMappings');
+      setToast({ message: 'Failed to delete FOS mapping', type: 'error' });
+    } finally {
+      setFosMappingToDelete(null);
     }
   };
 
@@ -1516,7 +1722,14 @@ export default function App() {
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'master-sheet' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
           >
             <FileText size={20} />
-            <span className="font-semibold text-sm">Master Sheet</span>
+            <span className="font-semibold text-sm">Asset Master</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('fos-master')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'fos-master' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+          >
+            <Users size={20} />
+            <span className="font-semibold text-sm">FOS Master Sheet</span>
           </button>
           <button 
             onClick={() => setActiveTab('reports')}
@@ -1554,7 +1767,8 @@ export default function App() {
                activeTab === 'top-100' ? 'Top 100 Quotations' :
                activeTab === 'fos-performance' ? 'FOS Performance Tracking' :
                activeTab === 'follow-up-schedule' ? 'Follow-up Schedule' :
-               activeTab === 'master-sheet' ? 'Master Asset Mapping' :
+               activeTab === 'master-sheet' ? 'Asset Master Mapping' :
+               activeTab === 'fos-master' ? 'FOS Master Sheet' :
                activeTab === 'reports' ? 'Reports & Downloads' :
                'FOS Performance'}
             </h2>
@@ -1614,7 +1828,7 @@ export default function App() {
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Zone Filter</label>
               <MultiSelect 
-                options={['Central', 'North', 'South', 'East', 'West']}
+                options={['Central', 'North', 'South', 'East', 'West', 'Attibele']}
                 selected={zoneFilter}
                 onChange={setZoneFilter}
                 placeholder="Select Zones..."
@@ -3065,7 +3279,7 @@ export default function App() {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                       type="text" 
-                      placeholder="Search asset no. or category..." 
+                      placeholder="Search asset, customer or category..." 
                       className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20 transition-all text-sm font-medium"
                       value={masterSearchTerm}
                       onChange={(e) => setMasterSearchTerm(e.target.value)}
@@ -3073,24 +3287,28 @@ export default function App() {
                   </div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                     Showing {masterAssets.filter(m => 
-                      m.assetNo.toLowerCase().includes(masterSearchTerm.toLowerCase()) || 
-                      m.category.toLowerCase().includes(masterSearchTerm.toLowerCase())
+                      (m.assetNo || '').toLowerCase().includes(masterSearchTerm.toLowerCase()) || 
+                      (m.customerName || '').toLowerCase().includes(masterSearchTerm.toLowerCase()) ||
+                      (m.customerCategory || '').toLowerCase().includes(masterSearchTerm.toLowerCase())
                     ).length} of {masterAssets.length} mappings
                   </p>
                 </div>
-                <button 
-                  onClick={() => setIsMasterModalOpen(true)}
-                  className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm"
-                >
-                  <Plus size={16} />
-                  Add Mapping
-                </button>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setIsMasterModalOpen(true)}
+                    className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm shadow-lg shadow-[#00AEEF]/20"
+                  >
+                    <Plus size={16} />
+                    Upload Asset Master
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
-                      <th className="px-6 py-4">Asset Number</th>
+                      <th className="px-6 py-4">Asset No.</th>
+                      <th className="px-6 py-4">Customer Name</th>
                       <th className="px-6 py-4">Category</th>
                       <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
@@ -3098,16 +3316,22 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {masterAssets
                       .filter(m => 
-                        m.assetNo.toLowerCase().includes(masterSearchTerm.toLowerCase()) || 
-                        m.category.toLowerCase().includes(masterSearchTerm.toLowerCase())
+                        (m.assetNo || '').toLowerCase().includes(masterSearchTerm.toLowerCase()) || 
+                        (m.customerName || '').toLowerCase().includes(masterSearchTerm.toLowerCase()) ||
+                        (m.customerCategory || '').toLowerCase().includes(masterSearchTerm.toLowerCase())
                       )
                       .map((m) => (
                         <tr key={m.id} className="hover:bg-slate-50/50 transition-colors group">
                           <td className="px-6 py-4">
-                            <p className="font-semibold text-slate-900 text-sm">{m.assetNo}</p>
+                            <p className="font-semibold text-slate-900 text-sm">{m.assetNo || '-'}</p>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{m.category}</span>
+                            <p className="text-sm text-slate-600">{m.customerName || '-'}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            {m.customerCategory ? (
+                              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{m.customerCategory}</span>
+                            ) : '-'}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button 
@@ -3121,8 +3345,110 @@ export default function App() {
                       ))}
                     {masterAssets.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="px-6 py-12 text-center text-slate-400 italic">
-                          No master asset mappings found. Upload a master sheet to get started.
+                        <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">
+                          No asset mappings found. Upload an asset master sheet to get started.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'fos-master' ? (
+          <div className="space-y-8">
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="relative w-full max-w-md">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="text" 
+                      placeholder="Search category, zone or FOS..." 
+                      className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20 transition-all text-sm font-medium"
+                      value={fosMappingSearchTerm}
+                      onChange={(e) => setFosMappingSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Showing {fosMappings.filter(m => 
+                      (m.customerCategory || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                      (m.zone || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                      (m.customerName || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                      (m.fosName || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase())
+                    ).length} of {fosMappings.length} mappings
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={syncFosAssignments}
+                    disabled={isUploading || fosMappings.length === 0}
+                    className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-200 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm shadow-lg shadow-emerald-500/20"
+                  >
+                    <RefreshCw size={16} className={isUploading ? 'animate-spin' : ''} />
+                    Sync FOS Assignments
+                  </button>
+                  <button 
+                    onClick={() => setIsFosMappingModalOpen(true)}
+                    className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm shadow-lg shadow-[#00AEEF]/20"
+                  >
+                    <Plus size={16} />
+                    Upload FOS Master
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Category</th>
+                      <th className="px-6 py-4">Zone</th>
+                      <th className="px-6 py-4">Customer Name (Optional)</th>
+                      <th className="px-6 py-4">Assigned FOS</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {fosMappings
+                      .filter(m => 
+                        (m.customerCategory || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                        (m.zone || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                        (m.customerName || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase()) ||
+                        (m.fosName || '').toLowerCase().includes(fosMappingSearchTerm.toLowerCase())
+                      )
+                      .map((m) => (
+                        <tr key={m.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-6 py-4">
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{m.customerCategory}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-slate-600 font-medium">{m.zone}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-slate-600">{m.customerName || 'Default'}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                {m.fosName?.charAt(0)}
+                              </div>
+                              <p className="font-medium text-slate-900 text-sm">{m.fosName}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => setFosMappingToDelete(m.id)}
+                              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    {fosMappings.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                          No FOS mappings found. Upload a FOS master sheet to set default assignments.
                         </td>
                       </tr>
                     )}
@@ -3447,7 +3773,19 @@ export default function App() {
                         const val = e.target.value;
                         const match = masterAssets.find(m => m.assetNo === val);
                         if (match) {
-                          setFormData({ ...formData, asset: val, customerCategory: match.category as any });
+                          const newCategory = (match.customerCategory || formData.customerCategory) as any;
+                          // Try to find FOS based on new category and current zone
+                          const fosMatch = fosMappings.find(fm => 
+                            standardizeValue(fm.customerCategory) === standardizeValue(newCategory) &&
+                            standardizeValue(fm.zone) === standardizeValue(formData.zone)
+                          );
+                          
+                          setFormData({ 
+                            ...formData, 
+                            asset: val, 
+                            customerCategory: newCategory,
+                            fosName: fosMatch ? fosMatch.fosName : formData.fosName
+                          });
                         } else {
                           setFormData({ ...formData, asset: val });
                         }
@@ -3494,6 +3832,7 @@ export default function App() {
                       <option value="North">North</option>
                       <option value="South">South</option>
                       <option value="Central">Central</option>
+                      <option value="Attibele">Attibele</option>
                     </select>
                   </div>
                   <div>
@@ -3663,7 +4002,7 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="text-xl font-bold text-slate-900 tracking-tight">Upload Master Sheet</h3>
-                      <p className="text-slate-500 text-sm mt-1">Map Asset No. to Customer Category</p>
+                      <p className="text-slate-500 text-sm mt-1">Map Asset, Customer, Category & Zone to FOS</p>
                     </div>
                   </div>
                   <button 
@@ -3689,7 +4028,15 @@ export default function App() {
                         <Plus size={32} />
                       </div>
                       <p className="text-slate-900 font-bold">{masterFile ? masterFile.name : 'Choose CSV File'}</p>
-                      <p className="text-slate-400 text-xs mt-1">Columns: Asset No., Category</p>
+                      <p className="text-slate-400 text-xs mt-1 text-center px-4">Required Columns: Asset No., Customer Name, Customer Category</p>
+                      <button 
+                        type="button"
+                        onClick={downloadMasterTemplate}
+                        className="mt-4 text-[#00AEEF] text-xs font-bold hover:underline flex items-center gap-1 relative z-20"
+                      >
+                        <Download size={12} />
+                        Download Asset Master Template
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -3697,25 +4044,97 @@ export default function App() {
                 <div className="flex gap-4">
                   <button 
                     type="button"
-                    onClick={() => {
-                      const headers = ['Asset No.', 'Category'];
-                      const exampleRow = ['ASSET-001', 'AMC'];
-                      const csvContent = headers.join(',') + '\n' + exampleRow.join(',');
-                      const blob = new Blob([csvContent], { type: 'text/csv' });
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = 'master_asset_template.csv';
-                      a.click();
-                      window.URL.revokeObjectURL(url);
-                    }}
+                    onClick={() => setIsMasterModalOpen(false)}
                     className="flex-1 px-6 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
                   >
-                    Template
+                    Cancel
                   </button>
                   <button 
                     type="submit"
                     disabled={!masterFile || isUploading}
+                    className="flex-[2] px-6 py-4 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-sm disabled:opacity-50"
+                  >
+                    {isUploading ? 'Uploading...' : 'Upload Mapping'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isFosMappingModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsFosMappingModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 border-b border-slate-100 bg-slate-50/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-[#00AEEF]/10 rounded-2xl flex items-center justify-center text-[#00AEEF]">
+                      <Users size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900 tracking-tight">Upload FOS Master</h3>
+                      <p className="text-slate-500 text-sm mt-1">Set default FOS for Category & Zone</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsFosMappingModalOpen(false)}
+                    className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-red-500 shadow-sm border border-slate-100 transition-all active:scale-90"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              
+              <form onSubmit={handleFosMappingUpload} className="p-8">
+                <div className="mb-8">
+                  <div className="border-2 border-dashed border-slate-200 rounded-3xl p-12 text-center hover:border-[#00AEEF]/50 transition-colors bg-slate-50/50 relative group">
+                    <input 
+                      type="file" 
+                      accept=".csv"
+                      onChange={(e) => setFosMappingFile(e.target.files?.[0] || null)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 mb-4 shadow-sm group-hover:scale-110 transition-transform">
+                        <Plus size={32} />
+                      </div>
+                      <p className="text-slate-900 font-bold">{fosMappingFile ? fosMappingFile.name : 'Choose CSV File'}</p>
+                      <p className="text-slate-400 text-xs mt-1 text-center px-4">Required Columns: Customer Category, Zone, FOS Name, Customer Name (Optional)</p>
+                      <button 
+                        type="button"
+                        onClick={downloadFosMappingTemplate}
+                        className="mt-4 text-[#00AEEF] text-xs font-bold hover:underline flex items-center gap-1 relative z-20"
+                      >
+                        <Download size={12} />
+                        Download FOS Mapping Template
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsFosMappingModalOpen(false)}
+                    className="flex-1 px-6 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={!fosMappingFile || isUploading}
                     className="flex-[2] px-6 py-4 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-2xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-sm disabled:opacity-50"
                   >
                     {isUploading ? 'Uploading...' : 'Upload Mapping'}
@@ -3875,6 +4294,7 @@ export default function App() {
                     <option value="South">South</option>
                     <option value="East">East</option>
                     <option value="West">West</option>
+                    <option value="Attibele">Attibele</option>
                   </select>
                 </div>
 
@@ -4297,6 +4717,48 @@ export default function App() {
                   </button>
                   <button 
                     onClick={confirmMasterDelete}
+                    className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
+                  >
+                    Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {fosMappingToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFosMappingToDelete(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete FOS Mapping?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Are you sure you want to delete this FOS mapping? This will remove the default FOS assignment for this category and zone.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setFosMappingToDelete(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmFosMappingDelete}
                     className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
                   >
                     Delete Now

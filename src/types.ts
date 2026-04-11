@@ -85,5 +85,14 @@ export interface FOSVisit {
 export interface MasterAsset {
   id?: string;
   assetNo: string;
-  category: 'AMC' | 'Non - AMC' | 'NEPI' | 'CAMC' | 'Paid';
+  customerCategory: string;
+  customerName?: string;
+}
+
+export interface FOSMapping {
+  id?: string;
+  customerCategory: string;
+  zone: string;
+  customerName?: string;
+  fosName: string;
 }
