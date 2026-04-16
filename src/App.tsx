@@ -104,19 +104,39 @@ const standardizeValue = (val: string): string => {
 };
 
 const formatExpectedMonth = (value: any) => {
-  if (!value || value === '#N/A') return '#N/A';
+  if (!value || value === '#N/A' || value === 'Unknown') return 'Unknown';
   try {
-    let dateStr = value;
+    let dateStr = String(value).trim();
+    
     if (typeof value !== 'string' && typeof value?.toDate === 'function') {
       dateStr = format(value.toDate(), 'yyyy-MM');
     }
-    if (typeof dateStr === 'string' && dateStr.includes('-')) {
+    
+    if (dateStr.includes('-')) {
       const [year, month] = dateStr.split('-').map(Number);
       if (!isNaN(year) && !isNaN(month)) {
         return format(new Date(year, month - 1), 'MMM yyyy');
       }
     }
-    return String(value);
+    
+    // Handle month names like "Apr", "July", "May 2026"
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const lowerStr = dateStr.toLowerCase();
+    let monthIndex = -1;
+    for (let i = 0; i < 12; i++) {
+      if (lowerStr.startsWith(monthNames[i])) {
+        monthIndex = i;
+        break;
+      }
+    }
+    
+    if (monthIndex !== -1) {
+      const yearMatch = dateStr.match(/\d{4}/);
+      const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+      return format(new Date(year, monthIndex), 'MMM yyyy');
+    }
+    
+    return dateStr;
   } catch (e) {
     return String(value);
   }
@@ -1387,15 +1407,7 @@ export default function App() {
     }, {} as Record<string, number>);
 
     const monthWiseValue = filteredForAnalytics.reduce((acc, q) => {
-      let month = 'Unknown';
-      if (q.expectedMonth && q.expectedMonth !== '#N/A') {
-        if (typeof q.expectedMonth === 'string') {
-          const m = q.expectedMonth.trim();
-          month = m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
-        } else if (typeof (q.expectedMonth as any).toDate === 'function') {
-          month = format((q.expectedMonth as any).toDate(), 'yyyy-MM');
-        }
-      }
+      const month = formatExpectedMonth(q.expectedMonth);
       acc[month] = (acc[month] || 0) + (q.baseAmount || 0);
       return acc;
     }, {} as Record<string, number>);
@@ -1486,9 +1498,18 @@ export default function App() {
       fosPerformanceData,
       monthWiseData: Object.entries(monthWiseValue)
         .map(([name, value]: [string, number]) => {
-          return { name: formatExpectedMonth(name), value, raw: name };
+          return { name, value, raw: name };
         })
-        .sort((a, b) => a.raw.localeCompare(b.raw)),
+        .sort((a, b) => {
+          if (a.raw === 'Unknown') return 1;
+          if (b.raw === 'Unknown') return -1;
+          const dateA = new Date(a.raw);
+          const dateB = new Date(b.raw);
+          if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+            return dateA.getTime() - dateB.getTime();
+          }
+          return a.raw.localeCompare(b.raw);
+        }),
     };
   }, [quotations, locFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
