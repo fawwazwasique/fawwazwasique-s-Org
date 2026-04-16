@@ -237,6 +237,7 @@ export default function App() {
   const [fosMappingToDelete, setFosMappingToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string, isTodayOnly?: boolean } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [masterFile, setMasterFile] = useState<File | null>(null);
@@ -2358,7 +2359,13 @@ export default function App() {
                         return null;
                       }}
                     />
-                    <Bar dataKey="value" fill="#ec4899" radius={[4, 4, 0, 0]} />
+                    <Bar 
+                      dataKey="value" 
+                      fill="#ec4899" 
+                      radius={[4, 4, 0, 0]} 
+                      onClick={(data) => setSelectedMonth(data.name)}
+                      cursor="pointer"
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartWrapper>
@@ -4888,6 +4895,87 @@ export default function App() {
 
       {/* Toast Notification */}
       <AnimatePresence>
+        {/* Month Quotes Modal */}
+        {selectedMonth && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">{selectedMonth}</h3>
+                  <p className="text-slate-500 text-sm font-medium">All quotations expected in this month</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedMonth(null)}
+                  className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="pb-4">Quote No</th>
+                        <th className="pb-4">Customer</th>
+                        <th className="pb-4">Item</th>
+                        <th className="pb-4">Status</th>
+                        <th className="pb-4">LOB</th>
+                        <th className="pb-4 text-right">Value</th>
+                        <th className="pb-4 text-right">History</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {quotations
+                        .filter(q => formatExpectedMonth(q.expectedMonth) === selectedMonth)
+                        .sort((a, b) => (b.baseAmount || 0) - (a.baseAmount || 0))
+                        .map((q) => (
+                          <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
+                            <td className="py-4 text-sm text-slate-900">{q.customer}</td>
+                            <td className="py-4 text-sm text-slate-600">{q.item}</td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
+                                {q.status}
+                              </span>
+                            </td>
+                            <td className="py-4 text-xs font-medium text-slate-500">{q.lob}</td>
+                            <td className="py-4 text-sm font-bold text-slate-900 text-right">
+                              ₹{(q.baseAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-4 text-right">
+                              <button 
+                                onClick={() => setHistoryQuotation(q)}
+                                className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
+                                title="Confidence History"
+                              >
+                                <History size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                <button 
+                  onClick={() => setSelectedMonth(null)}
+                  className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Customer Quotes Modal */}
         {selectedCustomer && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
