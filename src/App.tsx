@@ -1015,7 +1015,7 @@ export default function App() {
       'Visit Date': formatDateDisplay(q.visitDate, 'yyyy-MM-dd'),
       'Visit Outcome': q.visitOutcome,
       'Follow up Date': formatDateDisplay(q.followUpDate, 'yyyy-MM-dd'),
-      'LOB': q.lob,
+      'LOB': q.loc,
       'Expected Month': q.expectedMonth || '',
       'Remarks': q.remarks
     }));
