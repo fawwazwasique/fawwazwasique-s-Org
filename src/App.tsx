@@ -270,6 +270,7 @@ export default function App() {
     fosId: '',
     fosName: '',
     customerName: '',
+    quoteNo: '',
     plannedDate: format(new Date(), 'yyyy-MM-dd'),
     status: 'Planned' as FOSVisit['status'],
     outcome: '',
@@ -971,6 +972,7 @@ export default function App() {
         fosId: '',
         fosName: '',
         customerName: '',
+        quoteNo: '',
         plannedDate: format(new Date(), 'yyyy-MM-dd'),
         status: 'Planned',
         outcome: '',
@@ -1173,6 +1175,7 @@ export default function App() {
       fosId: visit.fosId,
       fosName: visit.fosName,
       customerName: visit.customerName,
+      quoteNo: visit.quoteNo || '',
       plannedDate: visit.plannedDate ? format(visit.plannedDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       status: visit.status,
       outcome: visit.outcome || '',
@@ -1660,7 +1663,7 @@ export default function App() {
         fosName: v.fosName,
         customer: v.customerName,
         type: 'Visit Follow-up',
-        reference: v.purposeOfVisit || 'Visit',
+        reference: v.quoteNo ? `${v.quoteNo} - ${v.purposeOfVisit || 'Visit'}` : (v.purposeOfVisit || 'Visit'),
         lob: 'N/A',
         value: 0,
         original: v
@@ -4574,6 +4577,16 @@ export default function App() {
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
                       value={visitFormData.customerName}
                       onChange={(e) => setVisitFormData({ ...visitFormData, customerName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Quote No (Optional)</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={visitFormData.quoteNo}
+                      onChange={(e) => setVisitFormData({ ...visitFormData, quoteNo: e.target.value })}
+                      placeholder="Enter Quote No..."
                     />
                   </div>
                 </div>

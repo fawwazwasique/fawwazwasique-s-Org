@@ -75,6 +75,7 @@ export interface FOSVisit {
   fosId: string;
   fosName: string;
   customerName: string;
+  quoteNo?: string;
   plannedDate: Timestamp;
   actualDate?: Timestamp;
   status: 'Planned' | 'Completed' | 'Cancelled';
