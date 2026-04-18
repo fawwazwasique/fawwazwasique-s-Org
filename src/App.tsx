@@ -241,6 +241,7 @@ export default function App() {
   const [fosMappingToDelete, setFosMappingToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string, isTodayOnly?: boolean } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [selectedQuoteNo, setSelectedQuoteNo] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
@@ -2465,7 +2466,14 @@ export default function App() {
                       {analytics.highValueQuotes.length > 0 ? (
                         analytics.highValueQuotes.map((q) => (
                           <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
+                            <td className="py-4">
+                              <button 
+                                onClick={() => setSelectedQuoteNo(q.quoteNo)}
+                                className="text-sm font-semibold text-[#00AEEF] hover:underline"
+                              >
+                                {q.quoteNo}
+                              </button>
+                            </td>
                             <td className="py-4 text-sm text-slate-600">{q.customer}</td>
                             <td className="py-4">
                               <button 
@@ -2630,7 +2638,12 @@ export default function App() {
                     {analytics.below1LakhQuotes.map((q) => (
                       <tr key={q.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-900 text-sm">{q.quoteNo}</p>
+                          <button 
+                            onClick={() => setSelectedQuoteNo(q.quoteNo)}
+                            className="font-semibold text-[#00AEEF] text-sm hover:underline"
+                          >
+                            {q.quoteNo}
+                          </button>
                         </td>
                         <td className="px-6 py-4">
                           <button 
@@ -2797,7 +2810,15 @@ export default function App() {
                           <span className="text-xs font-bold text-slate-400 w-6">#{i+1}</span>
                           <div>
                             <p className="text-sm font-bold text-slate-900 group-hover:text-[#F7941E] transition-colors">{q.customer}</p>
-                            <p className="text-[10px] text-slate-500">{q.quoteNo}</p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedQuoteNo(q.quoteNo);
+                              }}
+                              className="text-[10px] text-slate-500 hover:text-[#00AEEF] hover:underline"
+                            >
+                              {q.quoteNo}
+                            </button>
                           </div>
                         </div>
                         <div className="text-right">
@@ -3613,7 +3634,12 @@ export default function App() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <div>
-                            <p className="font-semibold text-slate-900 text-sm">{q.quoteNo}</p>
+                            <button 
+                              onClick={() => setSelectedQuoteNo(q.quoteNo)}
+                              className="font-semibold text-[#00AEEF] text-sm hover:underline"
+                            >
+                              {q.quoteNo}
+                            </button>
                             <p className="text-[10px] font-medium text-slate-400 mt-0.5">{q.opportunityNumber}</p>
                           </div>
                           {(!q.asset || q.asset === 'NTUPT') && (
@@ -5052,6 +5078,128 @@ export default function App() {
                   className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all"
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Quote Number Details Modal */}
+        {selectedQuoteNo && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Quote: {selectedQuoteNo}</h3>
+                  <p className="text-slate-500 text-sm font-medium">Reviewing all line items for this quotation</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedQuoteNo(null)}
+                  className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="pb-4">Line Item</th>
+                        <th className="pb-4">Description</th>
+                        <th className="pb-4">LOB / LOC</th>
+                        <th className="pb-4">Category</th>
+                        <th className="pb-4">FOS Name</th>
+                        <th className="pb-4">Status</th>
+                        <th className="pb-4 text-right">Qty</th>
+                        <th className="pb-4 text-right">Unit Price</th>
+                        <th className="pb-4 text-right">Total Value</th>
+                        <th className="pb-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {quotations
+                        .filter(q => q.quoteNo === selectedQuoteNo)
+                        .map((q) => (
+                          <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-4 text-sm font-semibold text-slate-900">
+                              {q.item}
+                            </td>
+                            <td className="py-4 text-xs text-slate-600 max-w-[200px] truncate">
+                              {q.itemDescription}
+                            </td>
+                            <td className="py-4">
+                              <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
+                            </td>
+                            <td className="py-4">
+                              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{q.customerCategory}</span>
+                            </td>
+                            <td className="py-4 text-xs font-semibold text-slate-600">
+                              <button 
+                                onClick={() => filterByFos(q.fosName)}
+                                className="text-xs font-bold text-[#00AEEF] hover:underline"
+                              >
+                                {q.fosName}
+                              </button>
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
+                                {q.status}
+                              </span>
+                            </td>
+                            <td className="py-4 text-sm text-slate-900 text-right">{q.quantity}</td>
+                            <td className="py-4 text-sm text-slate-900 text-right">₹{(q.unitPrice || 0).toLocaleString('en-IN')}</td>
+                            <td className="py-4 text-sm font-bold text-[#00AEEF] text-right">
+                              ₹{(q.baseAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button 
+                                  onClick={() => openEditModal(q)}
+                                  className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-md transition-colors"
+                                  title="Edit Line Item"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => setHistoryQuotation(q)}
+                                  className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-md transition-colors"
+                                  title="View History"
+                                >
+                                  <History size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-50/50 font-bold border-t-2 border-slate-100">
+                        <td colSpan={8} className="px-6 py-4 text-sm text-slate-600 text-right uppercase tracking-wider">Total Quote Value:</td>
+                        <td className="px-6 py-4 text-lg text-[#00AEEF] text-right">
+                          ₹{quotations
+                            .filter(q => q.quoteNo === selectedQuoteNo)
+                            .reduce((sum, q) => sum + (q.baseAmount || 0), 0)
+                            .toLocaleString('en-IN')}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                <button 
+                  onClick={() => setSelectedQuoteNo(null)}
+                  className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all"
+                >
+                  Close Review
                 </button>
               </div>
             </motion.div>
