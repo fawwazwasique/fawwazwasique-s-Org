@@ -221,7 +221,11 @@ export default function App() {
     customerCategory: 'Paid' as Quotation['customerCategory'],
     expectedMonth: format(new Date(), 'yyyy-MM'),
     followUpResponsibility: '',
-    statusRemarks: ''
+    statusRemarks: '',
+    telecallerName: '',
+    followedBy: '',
+    fosRemarks: '',
+    telecallerRemarks: ''
   });
 
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -239,6 +243,12 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  const filterByFos = (fosName: string) => {
+    setFosFilter([fosName]);
+    setActiveTab('follow-up-schedule');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [masterFile, setMasterFile] = useState<File | null>(null);
   const [fosMappingFile, setFosMappingFile] = useState<File | null>(null);
@@ -819,6 +829,12 @@ export default function App() {
       loc: standardizeValue(formData.lob) as Quotation['loc'],
       customerCategory: standardizeValue(formData.customerCategory) as Quotation['customerCategory'],
       expectedMonth: standardizeValue(formData.expectedMonth),
+      telecallerName: standardizeValue(formData.telecallerName),
+      followedBy: standardizeValue(formData.followedBy),
+      fosRemarks: standardizeValue(formData.fosRemarks),
+      telecallerRemarks: standardizeValue(formData.telecallerRemarks),
+      statusRemarks: standardizeValue(formData.statusRemarks),
+      followUpResponsibility: standardizeValue(formData.followUpResponsibility),
       confidence: confidence,
       quantity: Number(formData.quantity),
       unitPrice: Number(formData.unitPrice),
@@ -1017,6 +1033,12 @@ export default function App() {
       'Follow up Date': formatDateDisplay(q.followUpDate, 'yyyy-MM-dd'),
       'LOB': q.loc,
       'Expected Month': q.expectedMonth || '',
+      'Telecaller Name': q.telecallerName || '',
+      'Followed By': q.followedBy || '',
+      'Status Remarks': q.statusRemarks || '',
+      'Follow-up Responsibility': q.followUpResponsibility || '',
+      'FOS Remarks': q.fosRemarks || '',
+      'Telecaller Remarks': q.telecallerRemarks || '',
       'Remarks': q.remarks
     }));
 
@@ -1247,7 +1269,11 @@ export default function App() {
       customerCategory: q.customerCategory || 'Paid',
       expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM'),
       followUpResponsibility: q.followUpResponsibility || '',
-      statusRemarks: q.statusRemarks || ''
+      statusRemarks: q.statusRemarks || '',
+      telecallerName: q.telecallerName || '',
+      followedBy: q.followedBy || '',
+      fosRemarks: q.fosRemarks || '',
+      telecallerRemarks: q.telecallerRemarks || ''
     });
     setIsModalOpen(true);
   };
@@ -1604,7 +1630,11 @@ export default function App() {
 
   const allFollowUps = useMemo(() => {
     const quoteFollowUps = quotations
-      .filter(q => q.followUpDate && q.followUpDate !== '#N/A')
+      .filter(q => {
+        const hasDate = q.followUpDate && q.followUpDate !== '#N/A';
+        const matchesFos = fosFilter.length === 0 || (q.fosName && fosFilter.includes(q.fosName));
+        return hasDate && matchesFos;
+      })
       .map(q => ({
         id: q.id,
         date: (q.followUpDate as Timestamp).toDate(),
@@ -1618,7 +1648,11 @@ export default function App() {
       }));
 
     const visitFollowUps = visits
-      .filter(v => v.nextFollowUpDate)
+      .filter(v => {
+        const hasDate = v.nextFollowUpDate;
+        const matchesFos = fosFilter.length === 0 || (v.fosName && fosFilter.includes(v.fosName));
+        return !!hasDate && matchesFos;
+      })
       .map(v => ({
         id: v.id,
         date: v.nextFollowUpDate!.toDate(),
@@ -1632,7 +1666,7 @@ export default function App() {
       }));
 
     return [...quoteFollowUps, ...visitFollowUps].sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [quotations, visits]);
+  }, [quotations, visits, fosFilter]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -1888,7 +1922,13 @@ export default function App() {
               <MultiSelect 
                 options={uniqueFosNames}
                 selected={fosFilter}
-                onChange={setFosFilter}
+                onChange={(val) => {
+                  setFosFilter(val);
+                  if (val.length > 0) {
+                    setActiveTab('follow-up-schedule');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
                 placeholder="Select FOS..."
               />
             </div>
@@ -2414,11 +2454,11 @@ export default function App() {
                       <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
                         <th className="pb-4">Quote No</th>
                         <th className="pb-4">Customer</th>
-                        <th className="pb-4">LOC</th>
-                        <th className="pb-4">Status</th>
-                        <th className="pb-4">Status Remarks</th>
-                        <th className="pb-4">Follow-up Responsibility</th>
+                        <th className="pb-4">FOS Name</th>
+                        <th className="pb-4">STATUS REMARKS</th>
+                        <th className="pb-4">FOLLOW-UP RESPONSIBILITY</th>
                         <th className="pb-4 text-right">Value</th>
+                        <th className="pb-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -2427,43 +2467,34 @@ export default function App() {
                           <tr key={q.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-4 text-sm font-semibold text-slate-900">{q.quoteNo}</td>
                             <td className="py-4 text-sm text-slate-600">{q.customer}</td>
-                            <td className="py-4 text-xs font-medium text-slate-500">{q.loc}</td>
                             <td className="py-4">
-                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
-                                {q.status}
-                              </span>
+                              <button 
+                                onClick={() => filterByFos(q.fosName)}
+                                className="text-xs font-bold text-[#00AEEF] hover:underline"
+                              >
+                                {q.fosName}
+                              </button>
                             </td>
                             <td className="py-4">
-                              <input 
-                                type="text"
-                                className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
-                                placeholder="Remarks..."
-                                value={q.statusRemarks || ''}
-                                onChange={async (e) => {
-                                  try {
-                                    await updateDoc(doc(db, 'quotations', q.id!), { statusRemarks: e.target.value });
-                                  } catch (err) {
-                                    console.error('Failed to update remarks:', err);
-                                  }
-                                }}
-                              />
+                              <div className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 min-h-[24px]">
+                                {q.fosRemarks || q.statusRemarks || 'No remarks'}
+                              </div>
                             </td>
                             <td className="py-4">
-                              <input 
-                                type="text"
-                                className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
-                                placeholder="Responsibility..."
-                                value={q.followUpResponsibility || ''}
-                                onChange={async (e) => {
-                                  try {
-                                    await updateDoc(doc(db, 'quotations', q.id!), { followUpResponsibility: e.target.value });
-                                  } catch (err) {
-                                    console.error('Failed to update responsibility:', err);
-                                  }
-                                }}
-                              />
+                              <div className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 min-h-[24px]">
+                                {q.followedBy || q.followUpResponsibility || 'Not assigned'}
+                              </div>
                             </td>
                             <td className="py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
+                            <td className="py-4 text-right">
+                              <button 
+                                onClick={() => openEditModal(q)}
+                                className="p-2 hover:bg-[#00AEEF]/10 text-[#00AEEF] rounded-lg transition-colors"
+                                title="Edit Quotation"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                            </td>
                           </tr>
                         ))
                       ) : (
@@ -2506,11 +2537,11 @@ export default function App() {
                     <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <th className="px-6 py-4">Quote No</th>
                       <th className="px-6 py-4">Customer</th>
-                      <th className="px-6 py-4">LOC</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Status Remarks</th>
-                      <th className="px-6 py-4">Follow-up Responsibility</th>
+                      <th className="px-6 py-4">FOS Name</th>
+                      <th className="px-6 py-4">STATUS REMARKS</th>
+                      <th className="px-6 py-4">FOLLOW-UP RESPONSIBILITY</th>
                       <th className="px-6 py-4 text-right">Value</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2529,49 +2560,38 @@ export default function App() {
                           </button>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
+                          <button 
+                            onClick={() => filterByFos(q.fosName)}
+                            className="text-xs font-bold text-[#00AEEF] hover:underline"
+                          >
+                            {q.fosName}
+                          </button>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(q.status as any)}`}>
-                            {q.status}
-                          </span>
+                          <div className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 min-h-[24px]">
+                            {q.fosRemarks || q.statusRemarks || 'No remarks'}
+                          </div>
                         </td>
                         <td className="px-6 py-4">
-                          <input 
-                            type="text"
-                            className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
-                            placeholder="Remarks..."
-                            value={q.statusRemarks || ''}
-                            onChange={async (e) => {
-                              try {
-                                await updateDoc(doc(db, 'quotations', q.id!), { statusRemarks: e.target.value });
-                              } catch (err) {
-                                console.error('Failed to update remarks:', err);
-                              }
-                            }}
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <input 
-                            type="text"
-                            className="w-full px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00AEEF]/20"
-                            placeholder="Responsibility..."
-                            value={q.followUpResponsibility || ''}
-                            onChange={async (e) => {
-                              try {
-                                await updateDoc(doc(db, 'quotations', q.id!), { followUpResponsibility: e.target.value });
-                              } catch (err) {
-                                console.error('Failed to update responsibility:', err);
-                              }
-                            }}
-                          />
+                          <div className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 min-h-[24px]">
+                            {q.followedBy || q.followUpResponsibility || 'Not assigned'}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => openEditModal(q)}
+                            className="p-2 hover:bg-[#00AEEF]/10 text-[#00AEEF] rounded-lg transition-colors"
+                            title="Edit Quotation"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {analytics.highValueQuotes.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">No high value quotes found matching filters</td>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">No high value quotes found matching filters</td>
                       </tr>
                     )}
                   </tbody>
@@ -2599,9 +2619,11 @@ export default function App() {
                     <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <th className="px-6 py-4">Quote No</th>
                       <th className="px-6 py-4">Customer</th>
+                      <th className="px-6 py-4">FOS Name</th>
                       <th className="px-6 py-4">LOC</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Value</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2620,6 +2642,14 @@ export default function App() {
                           </button>
                         </td>
                         <td className="px-6 py-4">
+                          <button 
+                            onClick={() => filterByFos(q.fosName)}
+                            className="text-xs font-bold text-[#00AEEF] hover:underline"
+                          >
+                            {q.fosName}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{q.loc}</span>
                         </td>
                         <td className="px-6 py-4">
@@ -2628,6 +2658,15 @@ export default function App() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">₹{(q.baseAmount || 0).toLocaleString('en-IN')}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => openEditModal(q)}
+                            className="p-2 hover:bg-[#00AEEF]/10 text-[#00AEEF] rounded-lg transition-colors"
+                            title="Edit Quotation"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -3620,7 +3659,14 @@ export default function App() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-xs font-semibold text-slate-600">{q.zone}</td>
-                      <td className="px-6 py-4 text-xs font-semibold text-slate-600">{q.fosName}</td>
+                      <td className="px-6 py-4">
+                        <button 
+                          onClick={() => filterByFos(q.fosName)}
+                          className="text-xs font-bold text-[#00AEEF] hover:underline"
+                        >
+                          {q.fosName}
+                        </button>
+                      </td>
                       <td className="px-6 py-4">
                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
                           {formatExpectedMonth(q.expectedMonth)}
@@ -4020,10 +4066,46 @@ export default function App() {
                       <option value="Oil - CAMC">Oil - CAMC</option>
                     </select>
                   </div>
-                  <div className="lg:col-span-3">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Remarks</label>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Telecaller Name</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={formData.telecallerName}
+                      onChange={(e) => setFormData({ ...formData, telecallerName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Followed By</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={formData.followedBy}
+                      onChange={(e) => setFormData({ ...formData, followedBy: e.target.value })}
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Telecaller Remarks</label>
                     <textarea 
-                      rows={3}
+                      rows={2}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={formData.telecallerRemarks}
+                      onChange={(e) => setFormData({ ...formData, telecallerRemarks: e.target.value })}
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">FOS Remarks</label>
+                    <textarea 
+                      rows={2}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={formData.fosRemarks}
+                      onChange={(e) => setFormData({ ...formData, fosRemarks: e.target.value })}
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">General Remarks</label>
+                    <textarea 
+                      rows={2}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
                       value={formData.remarks}
                       onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}

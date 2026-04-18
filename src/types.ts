@@ -46,6 +46,10 @@ export interface Quotation {
   followUps?: FollowUp[];
   expectedMonth?: string;
   confidenceHistory?: ConfidenceHistory[];
+  telecallerName?: string;
+  followedBy?: string;
+  fosRemarks?: string;
+  telecallerRemarks?: string;
 }
 
 export interface UserProfile {
