@@ -16,6 +16,8 @@ import {
   Timestamp, 
   serverTimestamp,
   orderBy,
+  limit,
+  where,
   getDocFromServer
 } from 'firebase/firestore';
 import { 
@@ -281,7 +283,12 @@ export default function App() {
   });
 
   useEffect(() => {
-    const q = query(collection(db, 'quotations'), orderBy('createdAt', 'desc'));
+    // Only load the 1000 most recent quotations to save quota
+    const q = query(
+      collection(db, 'quotations'), 
+      orderBy('createdAt', 'desc'),
+      limit(1000)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const qts = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -311,7 +318,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'visits'), orderBy('plannedDate', 'desc'));
+    // Only load visits from last month onwards to save quota
+    const lastMonth = new Date();
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    
+    const q = query(
+      collection(db, 'visits'), 
+      where('plannedDate', '>=', Timestamp.fromDate(lastMonth)),
+      orderBy('plannedDate', 'desc'),
+      limit(500)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -326,7 +342,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'masterAssets'));
+    // Limit master assets to save quota
+    const q = query(
+      collection(db, 'masterAssets'),
+      limit(1000)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -1987,6 +2007,19 @@ export default function App() {
 
         {activeTab === 'dashboard' ? (
           <div className="space-y-8">
+            {/* Quota Optimization Notice */}
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">Database Optimization Active</h4>
+                  <p className="text-[10px] text-slate-500 font-medium">To stay within free usage limits, we are currently loading the 1,000 most recent records. Quota resets daily at Midnight PST.</p>
+                </div>
+              </div>
+            </div>
+
             {/* Today's Follow-ups Alert */}
             {allFollowUps.filter(fu => format(fu.date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')).length > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
@@ -2378,9 +2411,17 @@ export default function App() {
                 </ResponsiveContainer>
               </ChartWrapper>
 
-              <ChartWrapper title="Expected Month-wise Value (₹)">
+              <ChartWrapper title="Expected Month-wise Value (₹) - Click bars for details">
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.monthWiseData}>
+                  <BarChart 
+                    data={analytics.monthWiseData}
+                    onClick={(state) => {
+                      if (state && state.activeLabel) {
+                        setSelectedMonth(state.activeLabel);
+                      }
+                    }}
+                    cursor="pointer"
+                  >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
                     <YAxis 
@@ -2390,13 +2431,14 @@ export default function App() {
                       tickFormatter={formatIndianAxis}
                     />
                     <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
+                      cursor={{fill: '#f1f5f9', radius: 4}} 
                       content={({ active, payload, label }) => {
                         if (active && payload && payload.length) {
                           return (
                             <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
                               <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
-                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
+                              <p className="text-sm font-bold text-slate-900 mb-1">Value: {formatIndianCurrency(payload[0].value)}</p>
+                              <p className="text-[10px] text-[#00AEEF] font-bold uppercase tracking-tight">Click to view all quotes</p>
                             </div>
                           );
                         }
@@ -2407,8 +2449,7 @@ export default function App() {
                       dataKey="value" 
                       fill="#ec4899" 
                       radius={[4, 4, 0, 0]} 
-                      onClick={(data) => setSelectedMonth(data.name)}
-                      cursor="pointer"
+                      activeBar={{ fill: '#db2777', stroke: '#db2777', strokeWidth: 1 }}
                     />
                   </BarChart>
                 </ResponsiveContainer>

@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0775302142",
-  "appId": "1:562202113431:web:bbfa929273d3694c4240d2",
-  "apiKey": "AIzaSyBvIX5sz3JEeja0_6SRx8HRkjDAfJrYhiE",
-  "authDomain": "gen-lang-client-0775302142.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-f7d1a50a-c695-45c1-ac21-dfa682907af4",
-  "storageBucket": "gen-lang-client-0775302142.firebasestorage.app",
-  "messagingSenderId": "562202113431",
+  "projectId": "maniranjanquotes-f3451",
+  "appId": "1:330141510402:web:d0671726b248b31b88b01b",
+  "apiKey": "AIzaSyAbvt1Qv1eo3NyN_laH8tdUNhyMqwrP_n8",
+  "authDomain": "maniranjanquotes-f3451.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "maniranjanquotes-f3451.firebasestorage.app",
+  "messagingSenderId": "330141510402",
   "measurementId": ""
 }
