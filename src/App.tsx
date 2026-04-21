@@ -446,8 +446,11 @@ export default function App() {
             const quoteNo = standardizeValue(getCSVValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
             if (!quoteNo) return;
 
+            const loc = standardizeValue(getCSVValue(row, 'LOC') || getCSVValue(row, 'LOB') || 'Service') as Quotation['loc'];
+            const uniqueKey = `${quoteNo}_${loc}`;
+
             const baseAmount = quantity * unitPrice;
-            const existing = uniqueCsvItems.get(quoteNo);
+            const existing = uniqueCsvItems.get(uniqueKey);
 
             if (existing) {
               existing.baseAmount += baseAmount;
@@ -495,7 +498,7 @@ export default function App() {
             const rawConfidence = standardizeValue(getCSVValue(row, 'Confidence', 'Confidence Level') || '');
             const confidence = rawConfidence === '' ? 10 : parseNumber(rawConfidence);
 
-            uniqueCsvItems.set(quoteNo, {
+            uniqueCsvItems.set(uniqueKey, {
               quoteNo,
               opportunityNumber: standardizeWithNA(getCSVValue(row, 'Opportunity Number', 'OpportunityNo') || ''),
               quoteLineCreatedDate: parseDateOrNA(getCSVValue(row, 'Quote Line: Created Date', 'Created Date', 'Date')),
@@ -520,7 +523,7 @@ export default function App() {
               visitDate: parseDateOrNA(getCSVValue(row, 'Visit Date')),
               visitOutcome: standardizeWithNA(getCSVValue(row, 'Visit Outcome') || ''),
               followUpDate: parseDateOrNA(getCSVValue(row, 'Follow up', 'Follow up Date')),
-              loc: standardizeValue(getCSVValue(row, 'LOC') || getCSVValue(row, 'LOB') || 'Service') as Quotation['loc'],
+              loc: loc,
               customerCategory: customerCategory,
               expectedMonth: standardizeWithNA(getCSVValue(row, 'Expected Month') || ''),
               uid: 'guest',
@@ -542,7 +545,7 @@ export default function App() {
         const newItems: any[] = [];
 
         parsedItems.forEach((item: any) => {
-          const existing = quotations.find(q => q.quoteNo === item.quoteNo);
+          const existing = quotations.find(q => q.quoteNo === item.quoteNo && q.loc === item.loc);
           if (existing && existing.id) {
             updates.push({ newData: item, existingId: existing.id });
           } else {
@@ -2420,7 +2423,7 @@ export default function App() {
                         setSelectedMonth(state.activeLabel);
                       }
                     }}
-                    cursor="pointer"
+                    style={{ cursor: 'pointer' }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
