@@ -241,6 +241,7 @@ export default function App() {
   const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [masterAssetToDelete, setMasterAssetToDelete] = useState<string | null>(null);
   const [fosMappingToDelete, setFosMappingToDelete] = useState<string | null>(null);
+  const [fosToDelete, setFosToDelete] = useState<string | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<{ collection: string, label: string, isTodayOnly?: boolean } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedQuoteNo, setSelectedQuoteNo] = useState<string | null>(null);
@@ -1263,6 +1264,19 @@ export default function App() {
       setToast({ message: 'Failed to delete FOS mapping', type: 'error' });
     } finally {
       setFosMappingToDelete(null);
+    }
+  };
+
+  const confirmFosDelete = async () => {
+    if (!fosToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'fos', fosToDelete));
+      setToast({ message: 'FOS deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'fos');
+      setToast({ message: 'Failed to delete FOS', type: 'error' });
+    } finally {
+      setFosToDelete(null);
     }
   };
 
@@ -2913,24 +2927,33 @@ export default function App() {
                             <p className="font-bold text-slate-900">{fos.name}</p>
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{fos.employeeId}</span>
                           </div>
-                          <button 
-                            onClick={() => {
-                              setEditingFos(fos);
-                              setFosFormData({
-                                name: fos.name,
-                                employeeId: fos.employeeId,
-                                branch: fos.branch,
-                                zone: fos.zone,
-                                partsTarget: fos.partsTarget?.toString() || '',
-                                otherLocTarget: fos.otherLocTarget?.toString() || ''
-                              });
-                              setIsFosModalOpen(true);
-                            }}
-                            className="p-2 text-slate-400 hover:text-[#00AEEF] hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            title="Edit FOS"
-                          >
-                            <Edit2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => {
+                                setEditingFos(fos);
+                                setFosFormData({
+                                  name: fos.name,
+                                  employeeId: fos.employeeId,
+                                  branch: fos.branch,
+                                  zone: fos.zone,
+                                  partsTarget: fos.partsTarget?.toString() || '',
+                                  otherLocTarget: fos.otherLocTarget?.toString() || ''
+                                });
+                                setIsFosModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-[#00AEEF] hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              title="Edit FOS"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => setFosToDelete(fos.id!)}
+                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              title="Delete FOS"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mt-4">
                           <div>
@@ -4998,6 +5021,48 @@ export default function App() {
                   </button>
                   <button 
                     onClick={confirmFosMappingDelete}
+                    className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
+                  >
+                    Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {fosToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFosToDelete(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Field Officer?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Are you sure you want to delete this FOS? This will remove them from the system, but their existing visit records will remain.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setFosToDelete(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmFosDelete}
                     className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
                   >
                     Delete Now
