@@ -32,11 +32,13 @@ export interface Quotation {
   shippingAddress: string;
   zone: string;
   customer: string;
-  customerCategory: 'AMC' | 'NON - AMC' | 'Non - AMC' | 'Paid' | 'NEPI' | 'CAMC';
+  customerCategory: 'Paid' | 'NEPI' | 'CAMC';
   confidence: number | string | null;
   visitDate: Timestamp | string;
   visitOutcome: string;
-  followUpDate: Timestamp | string;
+  followUpDate: Timestamp | string; // Next Follow Up Date in UI
+  lastFollowUpDate?: Timestamp | string; // Optional for backward compatibility
+  lob?: 'Parts' | 'CBD' | 'Service' | 'Oil' | string;
   loc: 'Filter' | 'Core' | 'Recon' | 'Battery' | 'Oil' | 'Service' | 'Growth Parts' | 'Local Parts' | 'Engine L/B' | 'Oil - CAMC';
   followUpResponsibility?: string;
   statusRemarks?: string;
@@ -67,6 +69,9 @@ export interface FOS {
   zone: string;
   partsTarget?: number;
   otherLocTarget?: number;
+  cbdTarget?: number;
+  newAmcTarget?: number;
+  renewalAmcTarget?: number;
   createdAt: Timestamp;
 }
 
@@ -75,6 +80,7 @@ export interface FOSVisit {
   fosId: string;
   fosName: string;
   customerName: string;
+  customerCategory?: string;
   quoteNo?: string;
   plannedDate: Timestamp;
   actualDate?: Timestamp;

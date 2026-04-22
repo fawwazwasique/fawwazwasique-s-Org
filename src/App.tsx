@@ -95,7 +95,6 @@ const standardizeValue = (val: string): string => {
   const upper = trimmed.toUpperCase().replace(/\s/g, '');
   
   if (upper === 'NTUPT') return '';
-  if (upper === 'NON-AMC' || upper === 'NONAMC') return 'Non - AMC';
   if (upper === 'AMC') return 'AMC';
   if (upper === 'PAID') return 'Paid';
   if (upper === 'NEPI') return 'NEPI';
@@ -186,6 +185,7 @@ export default function App() {
   const [masterAssets, setMasterAssets] = useState<MasterAsset[]>([]);
   const [fosMappings, setFosMappings] = useState<FOSMapping[]>([]);
   const [locFilter, setLocFilter] = useState<string[]>([]);
+  const [lobFilter, setLobFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [zoneFilter, setZoneFilter] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
@@ -219,7 +219,9 @@ export default function App() {
     visitDate: format(new Date(), 'yyyy-MM-dd'),
     visitOutcome: '',
     followUpDate: format(new Date(), 'yyyy-MM-dd'),
-    lob: 'Service' as any,
+    lastFollowUpDate: '',
+    loc: 'Service' as Quotation['loc'],
+    lob: 'Parts',
     customerCategory: 'Paid' as Quotation['customerCategory'],
     expectedMonth: format(new Date(), 'yyyy-MM'),
     followUpResponsibility: '',
@@ -265,7 +267,10 @@ export default function App() {
     branch: '',
     zone: 'Central',
     partsTarget: '',
-    otherLocTarget: ''
+    otherLocTarget: '',
+    cbdTarget: '',
+    newAmcTarget: '',
+    renewalAmcTarget: ''
   });
   const [editingFos, setEditingFos] = useState<FOS | null>(null);
 
@@ -273,6 +278,7 @@ export default function App() {
     fosId: '',
     fosName: '',
     customerName: '',
+    customerCategory: 'Paid',
     quoteNo: '',
     plannedDate: format(new Date(), 'yyyy-MM-dd'),
     status: 'Planned' as FOSVisit['status'],
@@ -447,8 +453,9 @@ export default function App() {
             const quoteNo = standardizeValue(getCSVValue(row, 'Quote No.', 'QuoteNo', 'Quote Number') || '');
             if (!quoteNo) return;
 
-            const loc = standardizeValue(getCSVValue(row, 'LOC') || getCSVValue(row, 'LOB') || 'Service') as Quotation['loc'];
-            const uniqueKey = `${quoteNo}_${loc}`;
+            const loc = standardizeValue(getCSVValue(row, 'LOC') || 'Service') as Quotation['loc'];
+            const lob = standardizeValue(getCSVValue(row, 'LOB') || 'Parts');
+            const uniqueKey = `${quoteNo}_${loc}_${lob}`;
 
             const baseAmount = quantity * unitPrice;
             const existing = uniqueCsvItems.get(uniqueKey);
@@ -523,8 +530,10 @@ export default function App() {
               confidence: confidence,
               visitDate: parseDateOrNA(getCSVValue(row, 'Visit Date')),
               visitOutcome: standardizeWithNA(getCSVValue(row, 'Visit Outcome') || ''),
-              followUpDate: parseDateOrNA(getCSVValue(row, 'Follow up', 'Follow up Date')),
+              followUpDate: parseDateOrNA(getCSVValue(row, 'Next Follow up Date', 'Follow up Date')),
+              lastFollowUpDate: parseDateOrNA(getCSVValue(row, 'Last Follow up Date', 'Last Follow up')),
               loc: loc,
+              lob: lob,
               customerCategory: customerCategory,
               expectedMonth: standardizeWithNA(getCSVValue(row, 'Expected Month') || ''),
               uid: 'guest',
@@ -784,13 +793,13 @@ export default function App() {
       'Quote No.', 'Opportunity Number', 'Quote Line: Created Date', 'Account', 'Item', 'Item Description', 
       'Quantity', 'Unit Price', 'Status', 'Sale Order', 'Branch', 'Quote Line: Created By', 'Remarks', 
       'Asset', 'FOS Name', 'Billing Address', 'Shipping Address', 'Zone', 'Customer', 'Confidence', 
-      'Visit Date', 'Visit Outcome', 'Follow up', 'LOB', 'Customer Category', 'Expected Month'
+      'Visit Date', 'Visit Outcome', 'Last Follow up Date', 'Next Follow Up Date', 'LOC', 'LOB', 'Customer Category', 'Expected Month'
     ];
     const exampleRow = [
       'Q-001', 'OPP-123', '2024-12-01', 'Acme Corp', 'UPS 10kVA', 'Online UPS', 
       '1', '50000', 'Submitted', 'SO-456', 'Mumbai', 'Admin', 'Urgent', 
       'Asset-001', 'John Doe', 'Address 1', 'Address 2', 'Attibele', 'Acme Corp', '75', 
-      '2024-12-05', 'Positive', '2024-12-10', 'Service', 'Paid', '2024-12'
+      '2024-12-05', 'Positive', '2024-12-08', '2024-12-10', 'Service', 'Parts', 'Paid', '2024-12'
     ];
     const csvContent = headers.join(',') + '\n' + exampleRow.join(',');
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -852,7 +861,8 @@ export default function App() {
       zone: standardizeValue(formData.zone),
       customer: standardizeValue(formData.customer),
       visitOutcome: standardizeValue(formData.visitOutcome),
-      loc: standardizeValue(formData.lob) as Quotation['loc'],
+      loc: standardizeValue(formData.loc) as Quotation['loc'],
+      lob: standardizeValue(formData.lob),
       customerCategory: standardizeValue(formData.customerCategory) as Quotation['customerCategory'],
       expectedMonth: standardizeValue(formData.expectedMonth),
       telecallerName: standardizeValue(formData.telecallerName),
@@ -868,6 +878,7 @@ export default function App() {
       quoteLineCreatedDate: Timestamp.fromDate(safeDate(formData.quoteLineCreatedDate)),
       visitDate: Timestamp.fromDate(safeDate(formData.visitDate)),
       followUpDate: Timestamp.fromDate(safeDate(formData.followUpDate)),
+      lastFollowUpDate: formData.lastFollowUpDate ? Timestamp.fromDate(safeDate(formData.lastFollowUpDate)) : null,
       uid: 'guest',
       updatedAt: serverTimestamp(),
     };
@@ -924,6 +935,7 @@ export default function App() {
         visitDate: format(new Date(), 'yyyy-MM-dd'),
         visitOutcome: '',
         followUpDate: format(new Date(), 'yyyy-MM-dd'),
+        lastFollowUpDate: '',
         lob: 'Service',
         customerCategory: 'Paid',
         expectedMonth: format(new Date(), 'yyyy-MM')
@@ -942,6 +954,9 @@ export default function App() {
           ...fosFormData,
           partsTarget: Number(fosFormData.partsTarget) || 0,
           otherLocTarget: Number(fosFormData.otherLocTarget) || 0,
+          cbdTarget: Number(fosFormData.cbdTarget) || 0,
+          newAmcTarget: Number(fosFormData.newAmcTarget) || 0,
+          renewalAmcTarget: Number(fosFormData.renewalAmcTarget) || 0,
           updatedAt: serverTimestamp()
         });
         setToast({ message: 'FOS member updated successfully', type: 'success' });
@@ -950,13 +965,16 @@ export default function App() {
           ...fosFormData,
           partsTarget: Number(fosFormData.partsTarget) || 0,
           otherLocTarget: Number(fosFormData.otherLocTarget) || 0,
+          cbdTarget: Number(fosFormData.cbdTarget) || 0,
+          newAmcTarget: Number(fosFormData.newAmcTarget) || 0,
+          renewalAmcTarget: Number(fosFormData.renewalAmcTarget) || 0,
           createdAt: serverTimestamp()
         });
         setToast({ message: 'FOS member added successfully', type: 'success' });
       }
       setIsFosModalOpen(false);
       setEditingFos(null);
-      setFosFormData({ name: '', employeeId: '', branch: '', zone: 'Central', partsTarget: '', otherLocTarget: '' });
+      setFosFormData({ name: '', employeeId: '', branch: '', zone: 'Central', partsTarget: '', otherLocTarget: '', cbdTarget: '', newAmcTarget: '', renewalAmcTarget: '' });
     } catch (error) {
       handleFirestoreError(error, editingFos ? OperationType.UPDATE : OperationType.CREATE, 'fos');
       setToast({ message: `Failed to ${editingFos ? 'update' : 'add'} FOS member`, type: 'error' });
@@ -996,6 +1014,7 @@ export default function App() {
         fosId: '',
         fosName: '',
         customerName: '',
+        customerCategory: 'Paid',
         quoteNo: '',
         plannedDate: format(new Date(), 'yyyy-MM-dd'),
         status: 'Planned',
@@ -1057,8 +1076,10 @@ export default function App() {
       'Confidence (%)': q.confidence,
       'Visit Date': formatDateDisplay(q.visitDate, 'yyyy-MM-dd'),
       'Visit Outcome': q.visitOutcome,
-      'Follow up Date': formatDateDisplay(q.followUpDate, 'yyyy-MM-dd'),
-      'LOB': q.loc,
+      'Last Follow up Date': q.lastFollowUpDate ? formatDateDisplay(q.lastFollowUpDate, 'yyyy-MM-dd') : '',
+      'Next Follow Up Date': formatDateDisplay(q.followUpDate, 'yyyy-MM-dd'),
+      'LOC': q.loc,
+      'LOB': q.lob || '',
       'Expected Month': q.expectedMonth || '',
       'Telecaller Name': q.telecallerName || '',
       'Followed By': q.followedBy || '',
@@ -1199,6 +1220,7 @@ export default function App() {
       fosId: visit.fosId,
       fosName: visit.fosName,
       customerName: visit.customerName,
+      customerCategory: visit.customerCategory || 'Paid',
       quoteNo: visit.quoteNo || '',
       plannedDate: visit.plannedDate ? format(visit.plannedDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       status: visit.status,
@@ -1306,7 +1328,9 @@ export default function App() {
       visitDate: q.visitDate && typeof q.visitDate !== 'string' ? format(q.visitDate.toDate(), 'yyyy-MM-dd') : '',
       visitOutcome: q.visitOutcome || '',
       followUpDate: q.followUpDate && typeof q.followUpDate !== 'string' ? format(q.followUpDate.toDate(), 'yyyy-MM-dd') : '',
+      lastFollowUpDate: q.lastFollowUpDate && typeof q.lastFollowUpDate !== 'string' ? format(q.lastFollowUpDate.toDate(), 'yyyy-MM-dd') : '',
       loc: q.loc || 'Service',
+      lob: q.lob || 'Parts',
       customerCategory: q.customerCategory || 'Paid',
       expectedMonth: q.expectedMonth || format(new Date(), 'yyyy-MM'),
       followUpResponsibility: q.followUpResponsibility || '',
@@ -1323,6 +1347,7 @@ export default function App() {
   const analytics = useMemo(() => {
     const filteredForAnalytics = quotations.filter(q => {
       const qLoc = standardizeValue(q.loc);
+      const qLob = standardizeValue(q.lob || '');
       const qStatus = standardizeValue(q.status);
       const qZone = standardizeValue(q.zone);
       const qCategory = standardizeValue(q.customerCategory);
@@ -1330,6 +1355,7 @@ export default function App() {
       const qBranch = standardizeValue(q.branch);
 
       const matchesLoc = locFilter.length === 0 || locFilter.includes(qLoc);
+      const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
       const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
       const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
       const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
@@ -1351,7 +1377,7 @@ export default function App() {
         }
       }
       
-      return matchesLoc && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
+      return matchesLoc && matchesLob && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
     });
 
     const locWise = filteredForAnalytics.reduce((acc, q) => {
@@ -1445,21 +1471,20 @@ export default function App() {
     });
 
     const ageing = {
-      '0-15': 0,
-      '16-30': 0,
-      '31-45': 0,
-      '46-90': 0,
-      'Above 90': 0
+      '0-30': { count: 0, value: 0 },
+      '31-60': { count: 0, value: 0 },
+      '61-90': { count: 0, value: 0 },
+      'Above 90': { count: 0, value: 0 }
     };
 
     filteredForAnalytics.forEach(q => {
       if (!q.quoteLineCreatedDate || typeof q.quoteLineCreatedDate === 'string') return;
       const days = differenceInDays(new Date(), q.quoteLineCreatedDate.toDate());
-      if (days <= 15) ageing['0-15']++;
-      else if (days <= 30) ageing['16-30']++;
-      else if (days <= 45) ageing['31-45']++;
-      else if (days <= 90) ageing['46-90']++;
-      else ageing['Above 90']++;
+      const amt = q.baseAmount || 0;
+      if (days <= 30) { ageing['0-30'].count++; ageing['0-30'].value += amt; }
+      else if (days <= 60) { ageing['31-60'].count++; ageing['31-60'].value += amt; }
+      else if (days <= 90) { ageing['61-90'].count++; ageing['61-90'].value += amt; }
+      else { ageing['Above 90'].count++; ageing['Above 90'].value += amt; }
     });
 
     const followUpByFos = filteredForAnalytics.reduce((acc, q) => {
@@ -1468,11 +1493,42 @@ export default function App() {
       return acc;
     }, {} as Record<string, number>);
     
+    // Updated category, branch and lob to store count and value
     const customerCategoryWise = filteredForAnalytics.reduce((acc, q) => {
       const category = standardizeValue(q.customerCategory);
-      acc[category] = (acc[category] || 0) + (q.baseAmount || 0);
+      acc[category] = acc[category] || { count: 0, value: 0 };
+      acc[category].count += 1;
+      acc[category].value += (q.baseAmount || 0);
       return acc;
-    }, {} as Record<string, number>);
+    }, {} as Record<string, { count: number, value: number }>);
+
+    const branchWise = filteredForAnalytics.reduce((acc, q) => {
+      const branch = standardizeValue(q.branch);
+      if (branch) {
+        acc[branch] = acc[branch] || { count: 0, value: 0 };
+        acc[branch].count += 1;
+        acc[branch].value += (q.baseAmount || 0);
+      }
+      return acc;
+    }, {} as Record<string, { count: number, value: number }>);
+
+    const lobWise = filteredForAnalytics.reduce((acc, q) => {
+      const lob = standardizeValue(q.lob || '');
+      if (lob) {
+        acc[lob] = acc[lob] || { count: 0, value: 0 };
+        acc[lob].count += 1;
+        acc[lob].value += (q.baseAmount || 0);
+      }
+      return acc;
+    }, {} as Record<string, { count: number, value: number }>);
+
+    const fosRemarksWise = filteredForAnalytics.reduce((acc, q) => {
+      const remarks = standardizeValue(q.fosRemarks) || 'Unassigned';
+      acc[remarks] = acc[remarks] || { count: 0, value: 0 };
+      acc[remarks].count += 1;
+      acc[remarks].value += (q.baseAmount || 0);
+      return acc;
+    }, {} as Record<string, { count: number, value: number }>);
 
     const monthWiseValue = filteredForAnalytics.reduce((acc, q) => {
       const month = formatExpectedMonth(q.expectedMonth);
@@ -1560,9 +1616,12 @@ export default function App() {
         name: fos.name, 
         value: fos.totalTarget > 0 ? Math.round((fos.totalAchievement / fos.totalTarget) * 100) : 0 
       })).sort((a, b) => b.value - a.value),
-      ageingData: Object.entries(ageing).map(([name, value]: [string, number]) => ({ name, value: total ? Math.round((value / total) * 100) : 0 })),
+      ageingData: Object.entries(ageing).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
       followUpFosData: Object.entries(followUpByFos).map(([name, value]: [string, number]) => ({ name, value })),
-      customerCategoryValueData: Object.entries(customerCategoryWise).map(([name, value]: [string, number]) => ({ name, value })),
+      customerCategoryValueData: Object.entries(customerCategoryWise).map(([name, data]: [string, any]) => ({ name, count: data.count, value: data.value })),
+      branchWiseData: Object.entries(branchWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
+      lobWiseData: Object.entries(lobWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
+      fosRemarksData: Object.entries(fosRemarksWise).map(([name, data]: [string, { count: number, value: number }]) => ({ name, count: data.count, value: data.value })),
       fosPerformanceData,
       monthWiseData: Object.entries(monthWiseValue)
         .map(([name, value]: [string, number]) => {
@@ -1579,7 +1638,7 @@ export default function App() {
           return a.raw.localeCompare(b.raw);
         }),
     };
-  }, [quotations, locFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
+  }, [quotations, locFilter, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
   const confidenceAnalysis = useMemo(() => {
     const fromDate = reportDateRange.from ? new Date(reportDateRange.from) : null;
@@ -1628,6 +1687,7 @@ export default function App() {
     const qAccount = standardizeValue(q.account);
     const qFos = standardizeValue(q.fosName);
     const qLoc = standardizeValue(q.loc);
+    const qLob = standardizeValue(q.lob || '');
     const qQuoteNo = standardizeValue(q.quoteNo);
     const qStatus = standardizeValue(q.status);
     const qZone = standardizeValue(q.zone);
@@ -1638,9 +1698,11 @@ export default function App() {
       qAccount.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qFos.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qLoc.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      qLob.toLowerCase().includes(searchTerm.toLowerCase()) ||
       qQuoteNo.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesLoc = locFilter.length === 0 || locFilter.includes(qLoc);
+    const matchesLob = lobFilter.length === 0 || lobFilter.includes(qLob);
     const matchesStatus = statusFilter.length === 0 || statusFilter.includes(qStatus);
     const matchesZone = zoneFilter.length === 0 || zoneFilter.includes(qZone);
     const matchesCategory = categoryFilter.length === 0 || categoryFilter.includes(qCategory);
@@ -1662,9 +1724,9 @@ export default function App() {
       }
     }
     
-    return matchesSearch && matchesLoc && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
+    return matchesSearch && matchesLoc && matchesLob && matchesStatus && matchesZone && matchesCategory && matchesFos && matchesBranch && matchesDate;
     });
-  }, [quotations, searchTerm, locFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
+  }, [quotations, searchTerm, locFilter, lobFilter, statusFilter, zoneFilter, categoryFilter, fosFilter, branchFilter, dateRange]);
 
   const uniqueFosNames = useMemo(() => Array.from(new Set(quotations.map(q => q.fosName).filter(Boolean))), [quotations]);
   const uniqueBranches = useMemo(() => Array.from(new Set(quotations.map(q => q.branch).filter(Boolean))), [quotations]);
@@ -1869,20 +1931,29 @@ export default function App() {
       <main className="flex-1 ml-64 p-8">
         <header className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">
-              {activeTab === 'dashboard' ? 'Ethen Power Dashboard' : 
-               activeTab === 'list' ? 'Quotations List' : 
-               activeTab === 'high-value' ? 'High Value Quotations' :
-               activeTab === 'below-1-lakh' ? 'Below 1 Lakh Quotations' :
-               activeTab === 'customer-wise' ? 'Customer Wise Quotations' :
-               activeTab === 'top-100' ? 'Top 100 Quotations' :
-               activeTab === 'fos-performance' ? 'FOS Performance Tracking' :
-               activeTab === 'follow-up-schedule' ? 'Follow-up Schedule' :
-               activeTab === 'master-sheet' ? 'Asset Master Mapping' :
-               activeTab === 'fos-master' ? 'FOS Master Sheet' :
-               activeTab === 'reports' ? 'Reports & Downloads' :
-               'FOS Performance'}
-            </h2>
+            {activeTab === 'dashboard' ? (
+              <motion.h2 
+                className="text-3xl font-black capitalize tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[#00AEEF] via-[#8DC63F] to-[#00AEEF] bg-[length:200%_auto]"
+                animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
+              >
+                Ethen Quotation Tracking Dashboard
+              </motion.h2>
+            ) : (
+              <h2 className="text-3xl font-bold text-slate-900 capitalize tracking-tight">
+                {activeTab === 'list' ? 'Quotations List' : 
+                 activeTab === 'high-value' ? 'High Value Quotations' :
+                 activeTab === 'below-1-lakh' ? 'Below 1 Lakh Quotations' :
+                 activeTab === 'customer-wise' ? 'Customer Wise Quotations' :
+                 activeTab === 'top-100' ? 'Top 100 Quotations' :
+                 activeTab === 'fos-performance' ? 'FOS Performance Tracking' :
+                 activeTab === 'follow-up-schedule' ? 'Follow-up Schedule' :
+                 activeTab === 'master-sheet' ? 'Asset Master Mapping' :
+                 activeTab === 'fos-master' ? 'FOS Master Sheet' :
+                 activeTab === 'reports' ? 'Reports & Downloads' :
+                 'FOS Performance'}
+              </h2>
+            )}
             <p className="text-slate-500 text-sm mt-1">Ethen Power Solutionns Private Limited - Quotation Tracking</p>
           </div>
           <button 
@@ -1910,7 +1981,18 @@ export default function App() {
 
         {/* Shared Filters Bar */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-6">
+            {/* LOB Filter */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOB Filter</label>
+              <MultiSelect 
+                options={['Parts', 'CBD', 'Service', 'Oil']}
+                selected={lobFilter}
+                onChange={setLobFilter}
+                placeholder="Select LOBs..."
+              />
+            </div>
+
             {/* LOC Filter */}
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOC Filter</label>
@@ -1950,7 +2032,7 @@ export default function App() {
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Category Filter</label>
               <MultiSelect 
-                options={['AMC', 'Non - AMC', 'Paid', 'NEPI', 'CAMC']}
+                options={['AMC', 'Paid', 'NEPI', 'CAMC']}
                 selected={categoryFilter}
                 onChange={setCategoryFilter}
                 placeholder="Select Categories..."
@@ -2147,20 +2229,19 @@ export default function App() {
               />
             </div>
 
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <ChartWrapper title="Customer Category Value (%)">
+            {/* First Row: 3 Donut Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+              <ChartWrapper title="Customer Category Wise">
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
                       data={analytics.customerCategoryValueData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={4}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
                       dataKey="value"
-                      label={({ name, value, percent }) => `${name}: ${formatIndianCurrency(value)} (${Math.round(percent * 100)}%)`}
+                      stroke="none"
+                      cornerRadius={5}
                     >
                       {analytics.customerCategoryValueData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -2173,68 +2254,253 @@ export default function App() {
                           const total = analytics.customerCategoryValueData.reduce((sum, item) => sum + item.value, 0);
                           const percent = Math.round((data.value / total) * 100);
                           return (
-                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                              <p className="text-xs font-semibold text-slate-500 mb-1">{data.name}</p>
-                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(data.value)}</p>
-                              <p className="text-xs text-slate-500">Contribution: {percent}%</p>
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
                             </div>
                           );
                         }
                         return null;
                       }}
                     />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
+              <ChartWrapper title="Branch Wise Quotations">
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analytics.branchWiseData}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={5}
+                    >
+                      {analytics.branchWiseData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.branchWiseData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
+                          return (
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+
+              <ChartWrapper title="LOB Wise Quotations">
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analytics.lobWiseData}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={5}
+                    >
+                      {analytics.lobWiseData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 4) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.lobWiseData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
+                          return (
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name || 'Unknown'}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+            </div>
+
+            {/* Second Row Charts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+              <ChartWrapper title="Quotation Ageing (Days)">
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analytics.ageingData}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={5}
+                    >
+                      {analytics.ageingData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 1) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.ageingData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
+                          return (
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name} Days</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </ChartWrapper>
 
               <ChartWrapper title="Confidence Level (Value & Count)">
                 <ResponsiveContainer width="100%" height={300}>
-                  <ComposedChart data={analytics.confidenceLevelData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <YAxis 
-                      yAxisId="left"
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={formatIndianAxis}
-                    />
-                    <YAxis 
-                      yAxisId="right"
-                      orientation="right"
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                    />
+                  <PieChart>
+                    <Pie
+                      data={analytics.confidenceLevelData}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={5}
+                    >
+                      {analytics.confidenceLevelData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                      ))}
+                    </Pie>
                     <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      content={({ active, payload, label }) => {
+                      content={({ active, payload }) => {
                         if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.confidenceLevelData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
                           return (
-                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                              <p className="text-xs font-semibold text-slate-500 mb-2">{label}</p>
-                              {payload.map((entry: any, index: number) => (
-                                <div key={index} className="flex items-center justify-between gap-4 mb-1 last:mb-0">
-                                  <span className="text-xs text-slate-600">{entry.name}:</span>
-                                  <span className="text-xs font-bold text-slate-900">
-                                    {entry.name.toLowerCase().includes('value') ? formatIndianCurrency(entry.value) : formatNumber(entry.value)}
-                                  </span>
-                                </div>
-                              ))}
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
                             </div>
                           );
                         }
                         return null;
                       }}
                     />
-                    <Legend verticalAlign="top" align="right" />
-                    <Bar yAxisId="left" dataKey="value" name="Quote Value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="count" name="Quote Count" stroke="#F7941E" strokeWidth={3} dot={{ r: 4 }} />
-                  </ComposedChart>
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                  </PieChart>
                 </ResponsiveContainer>
               </ChartWrapper>
 
+              <ChartWrapper title="FOS Remarks Stage Wise">
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analytics.fosRemarksData}
+                      cx="50%" cy="50%"
+                      innerRadius={65} outerRadius={95}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={5}
+                    >
+                      {analytics.fosRemarksData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const total = analytics.fosRemarksData.reduce((sum, item) => sum + item.value, 0);
+                          const percent = Math.round((data.value / total) * 100);
+                          return (
+                            <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-100">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                                <p className="text-xs font-bold text-slate-800">{data.name}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Qtn Count: <span className="text-slate-900">{data.count || 0}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Value: <span className="text-slate-900">{formatIndianCurrency(data.value)}</span></p>
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase">Share: <span className="text-[#00AEEF]">{percent}%</span></p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 600 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartWrapper>
+            </div>
+
+            {/* Third Row Charts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               <ChartWrapper title="Amount Wise Distribution (Value & Count)">
                 <ResponsiveContainer width="100%" height={300}>
                   <ComposedChart data={analytics.amountWiseData}>
@@ -2282,152 +2548,6 @@ export default function App() {
                 </ResponsiveContainer>
               </ChartWrapper>
 
-              <ChartWrapper title="LOC wise Value (₹)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.locData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={formatIndianAxis}
-                    />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          return (
-                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
-                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#00AEEF" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <ChartWrapper title="Quotation Ageing (%)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.ageingData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={(value) => `${value}%`}
-                    />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [`${value}%`, 'Percentage']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
-                    />
-                    <Bar dataKey="value" fill="#F7941E" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <ChartWrapper title="FOS Achievement (%)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.fosData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                    <XAxis 
-                      type="number" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={(value) => `${value}%`}
-                    />
-                    <YAxis dataKey="name" type="category" width={80} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      formatter={(value: number) => [`${value}%`, 'Percentage']}
-                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
-                    />
-                    <Bar dataKey="value" fill="#8DC63F" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">FOS Target vs Achievement</h3>
-                    <p className="text-slate-500 text-sm mt-1">Performance based on 90%+ confidence quotations</p>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
-                        <th className="px-6 py-4">FOS Name</th>
-                        <th className="px-6 py-4">Parts Target</th>
-                        <th className="px-6 py-4">Parts Achievement</th>
-                        <th className="px-6 py-4">Other LOC Target</th>
-                        <th className="px-6 py-4">Other LOC Achievement</th>
-                        <th className="px-6 py-4">Total Achievement %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {analytics.fosPerformanceData.map((fos) => {
-                        const achievementPercent = fos.totalTarget > 0 ? (fos.totalAchievement / fos.totalTarget) * 100 : 0;
-                        return (
-                          <tr key={fos.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-6 py-4 font-semibold text-slate-900 text-sm">{fos.name}</td>
-                            <td className="px-6 py-4 text-sm text-slate-600">₹{fos.partsTarget.toLocaleString('en-IN')}</td>
-                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">₹{fos.partsAchievement.toLocaleString('en-IN')}</td>
-                            <td className="px-6 py-4 text-sm text-slate-600">₹{fos.otherLocTarget.toLocaleString('en-IN')}</td>
-                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">₹{fos.otherLocAchievement.toLocaleString('en-IN')}</td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                  <div 
-                                    className={`h-full transition-all duration-500 ${achievementPercent >= 100 ? 'bg-emerald-500' : achievementPercent >= 50 ? 'bg-[#00AEEF]' : 'bg-amber-500'}`}
-                                    style={{ width: `${Math.min(achievementPercent, 100)}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs font-bold text-slate-700">{Math.round(achievementPercent)}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <ChartWrapper title="Follow-ups by FOS">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.followUpFosData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          return (
-                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
-                              <p className="text-xs font-bold text-slate-900">Follow-ups: {formatNumber(payload[0].value)}</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
               <ChartWrapper title="Expected Month-wise Value (₹) - Click bars for details">
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart 
@@ -2468,37 +2588,6 @@ export default function App() {
                       radius={[4, 4, 0, 0]} 
                       activeBar={{ fill: '#db2777', stroke: '#db2777', strokeWidth: 1 }}
                     />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartWrapper>
-
-              <ChartWrapper title="Top 5 Customers by Value (₹)">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analytics.top100CustomerQuotes.slice(0, 5)} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                    <XAxis 
-                      type="number" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#64748b', fontSize: 11}}
-                      tickFormatter={formatIndianAxis}
-                    />
-                    <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
-                    <Tooltip 
-                      cursor={{fill: '#f1f5f9'}} 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          return (
-                            <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100">
-                              <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
-                              <p className="text-xs font-bold text-slate-900">Value: {formatIndianCurrency(payload[0].value)}</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#8DC63F" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartWrapper>
@@ -2914,12 +3003,18 @@ export default function App() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
-                <h3 className="text-lg font-bold text-slate-900 mb-6">FOS Team</h3>
+                <h3 className="text-lg font-bold text-slate-900 mb-6">FOS Score Card</h3>
                 <div className="space-y-4">
                   {fosList.map(fos => {
                     const fosVisits = visits.filter(v => v.fosId === fos.id);
                     const completed = fosVisits.filter(v => v.status === 'Completed').length;
                     const business = fosVisits.reduce((sum, v) => sum + (v.businessGenerated || 0), 0);
+                    const fosQuotes = quotations.filter(q => q.fosName === fos.name);
+                    const fosQuoteCount = fosQuotes.length;
+                    const fosQuoteValue = fosQuotes.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+                    const totalQuoteValue = quotations.reduce((sum, q) => sum + (q.baseAmount || 0), 0);
+                    const fosQuotePercentage = totalQuoteValue > 0 ? ((fosQuoteValue / totalQuoteValue) * 100).toFixed(1) : '0';
+                    
                     return (
                       <div key={fos.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 group relative">
                         <div className="flex items-center justify-between mb-2">
@@ -2937,7 +3032,10 @@ export default function App() {
                                   branch: fos.branch,
                                   zone: fos.zone,
                                   partsTarget: fos.partsTarget?.toString() || '',
-                                  otherLocTarget: fos.otherLocTarget?.toString() || ''
+                                  otherLocTarget: fos.otherLocTarget?.toString() || '',
+                                  cbdTarget: fos.cbdTarget?.toString() || '',
+                                  newAmcTarget: fos.newAmcTarget?.toString() || '',
+                                  renewalAmcTarget: fos.renewalAmcTarget?.toString() || ''
                                 });
                                 setIsFosModalOpen(true);
                               }}
@@ -2955,7 +3053,21 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100">
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Quote Count</p>
+                            <p className="text-xs font-bold text-slate-900">{fosQuoteCount}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Quote Value</p>
+                            <p className="text-xs font-bold text-[#00AEEF]">₹{fosQuoteValue.toLocaleString('en-IN')}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Share (%)</p>
+                            <p className="text-xs font-bold text-slate-700">{fosQuotePercentage}%</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
                           <div>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Visits</p>
                             <p className="text-sm font-bold text-slate-700">{completed} / {fosVisits.length}</p>
@@ -2965,16 +3077,38 @@ export default function App() {
                             <p className="text-sm font-bold text-[#8DC63F]">₹{business.toLocaleString('en-IN')}</p>
                           </div>
                         </div>
-                        {(fos.partsTarget || fos.otherLocTarget) && (
+                        {(fos.partsTarget || fos.otherLocTarget || fos.cbdTarget || fos.newAmcTarget || fos.renewalAmcTarget) && (
                           <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts Target</p>
-                              <p className="text-xs font-bold text-slate-600">₹{(fos.partsTarget || 0).toLocaleString('en-IN')}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Other Target</p>
-                              <p className="text-xs font-bold text-slate-600">₹{(fos.otherLocTarget || 0).toLocaleString('en-IN')}</p>
-                            </div>
+                            {fos.partsTarget ? (
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts Target</p>
+                                <p className="text-xs font-bold text-slate-600">₹{fos.partsTarget.toLocaleString('en-IN')}</p>
+                              </div>
+                            ) : null}
+                            {fos.otherLocTarget ? (
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Other Target</p>
+                                <p className="text-xs font-bold text-slate-600">₹{fos.otherLocTarget.toLocaleString('en-IN')}</p>
+                              </div>
+                            ) : null}
+                            {fos.cbdTarget ? (
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CBD Target</p>
+                                <p className="text-xs font-bold text-slate-600">₹{fos.cbdTarget.toLocaleString('en-IN')}</p>
+                              </div>
+                            ) : null}
+                            {fos.newAmcTarget ? (
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New AMC Target</p>
+                                <p className="text-xs font-bold text-slate-600">₹{fos.newAmcTarget.toLocaleString('en-IN')}</p>
+                              </div>
+                            ) : null}
+                            {fos.renewalAmcTarget ? (
+                              <div className="col-span-2">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Renewal AMC Target</p>
+                                <p className="text-xs font-bold text-slate-600">₹{fos.renewalAmcTarget.toLocaleString('en-IN')}</p>
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -3068,7 +3202,7 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
-                        <th className="pb-4">Follow-up Date</th>
+                        <th className="pb-4">Next Follow-up Date</th>
                         <th className="pb-4">FOS Name</th>
                         <th className="pb-4">Customer</th>
                         <th className="pb-4">Type</th>
@@ -4102,7 +4236,16 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Follow up Date</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Last Follow up Date</label>
+                    <input 
+                      type="date" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={formData.lastFollowUpDate || ''}
+                      onChange={(e) => setFormData({ ...formData, lastFollowUpDate: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Next Follow Up Date</label>
                     <input 
                       type="date" 
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
@@ -4135,20 +4278,32 @@ export default function App() {
                       onChange={(e) => setFormData({ ...formData, customerCategory: e.target.value as Quotation['customerCategory'] })}
                     >
                       <option value="AMC">AMC</option>
-                      <option value="NON - AMC">NON - AMC</option>
-                      <option value="Non - AMC">Non - AMC</option>
                       <option value="Paid">Paid</option>
                       <option value="NEPI">NEPI</option>
                       <option value="CAMC">CAMC</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOC (Line of Credit)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOB (Line of Business)</label>
                     <select 
                       required
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
                       value={formData.lob}
-                      onChange={(e) => setFormData({ ...formData, lob: e.target.value as any })}
+                      onChange={(e) => setFormData({ ...formData, lob: e.target.value })}
+                    >
+                      <option value="Parts">Parts</option>
+                      <option value="CBD">CBD</option>
+                      <option value="Service">Service</option>
+                      <option value="Oil">Oil</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">LOC (Line of Category)</label>
+                    <select 
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
+                      value={formData.loc}
+                      onChange={(e) => setFormData({ ...formData, loc: e.target.value as any })}
                     >
                       <option value="Filter">Filter</option>
                       <option value="Core">Core</option>
@@ -4191,12 +4346,18 @@ export default function App() {
                   </div>
                   <div className="lg:col-span-1">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">FOS Remarks</label>
-                    <textarea 
-                      rows={2}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                    <select 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
                       value={formData.fosRemarks}
                       onChange={(e) => setFormData({ ...formData, fosRemarks: e.target.value })}
-                    />
+                    >
+                      <option value="">Select Remarks Stage...</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Price Negotiation">Price Negotiation</option>
+                      <option value="Technical Clarification">Technical Clarification</option>
+                      <option value="Payment Terms Adjustment">Payment Terms Adjustment</option>
+                      <option value="Unassigned">Unassigned / Other</option>
+                    </select>
                   </div>
                   <div className="lg:col-span-1">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">General Remarks</label>
@@ -4571,6 +4732,36 @@ export default function App() {
                       placeholder="e.g. 5000000"
                     />
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">CBD Target (₹)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={fosFormData.cbdTarget}
+                      onChange={(e) => setFosFormData({ ...fosFormData, cbdTarget: e.target.value })}
+                      placeholder="e.g. 1000000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">New AMC Target (₹)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={fosFormData.newAmcTarget}
+                      onChange={(e) => setFosFormData({ ...fosFormData, newAmcTarget: e.target.value })}
+                      placeholder="e.g. 500000"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Renewal AMC Target (₹)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={fosFormData.renewalAmcTarget}
+                      onChange={(e) => setFosFormData({ ...fosFormData, renewalAmcTarget: e.target.value })}
+                      placeholder="e.g. 200000"
+                    />
+                  </div>
                 </div>
                 <div className="pt-4 flex justify-end gap-3">
                   <button 
@@ -4628,13 +4819,44 @@ export default function App() {
                       disabled={!!editingVisit}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none disabled:opacity-60"
                       value={visitFormData.fosId}
-                      onChange={(e) => setVisitFormData({ ...visitFormData, fosId: e.target.value })}
+                      onChange={(e) => setVisitFormData({ ...visitFormData, fosId: e.target.value, quoteNo: '', customerName: '', customerCategory: 'Paid' })}
                     >
                       <option value="">Select FOS Member...</option>
                       {fosList.map(fos => (
                         <option key={fos.id} value={fos.id}>{fos.name} ({fos.employeeId})</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Quote No (Optional)</label>
+                    <input 
+                      list="fos-quotations-list"
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={visitFormData.quoteNo}
+                      onChange={(e) => {
+                        const quoteNo = e.target.value;
+                        const matchedQuote = quotations.find(q => q.quoteNo === quoteNo);
+                        if (matchedQuote) {
+                          setVisitFormData({ 
+                            ...visitFormData, 
+                            quoteNo: matchedQuote.quoteNo, 
+                            customerName: matchedQuote.customer, 
+                            customerCategory: matchedQuote.customerCategory || 'Paid'
+                          });
+                        } else {
+                          setVisitFormData({ ...visitFormData, quoteNo });
+                        }
+                      }}
+                      placeholder="Search Quote No..."
+                    />
+                    <datalist id="fos-quotations-list">
+                      {quotations
+                        .filter(q => q.fosName === fosList.find(f => f.id === visitFormData.fosId)?.name)
+                        .map(q => (
+                          <option key={q.id} value={q.quoteNo}>{q.customer} ({q.quoteNo})</option>
+                        ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Customer Name</label>
@@ -4647,14 +4869,17 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Quote No (Optional)</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
-                      value={visitFormData.quoteNo}
-                      onChange={(e) => setVisitFormData({ ...visitFormData, quoteNo: e.target.value })}
-                      placeholder="Enter Quote No..."
-                    />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Customer Category</label>
+                    <select 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none"
+                      value={visitFormData.customerCategory || 'Paid'}
+                      onChange={(e) => setVisitFormData({ ...visitFormData, customerCategory: e.target.value })}
+                    >
+                      <option value="Paid">Paid</option>
+                      <option value="AMC">AMC</option>
+                      <option value="NEPI">NEPI</option>
+                      <option value="CAMC">CAMC</option>
+                    </select>
                   </div>
                 </div>
 
