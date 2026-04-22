@@ -61,11 +61,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   RefreshCw,
-  FileSpreadsheet
+  FileSpreadsheet,
+  PhoneCall
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
-import { Quotation, FOS, FOSVisit, MasterAsset, FOSMapping } from './types';
+import { Quotation, FOS, FOSVisit, MasterAsset, FOSMapping, Telecaller, CallLog } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 
@@ -176,12 +177,14 @@ export default function App() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'fos-master' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'telecaller-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'fos-master' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [masterSearchTerm, setMasterSearchTerm] = useState('');
   const [fosMappingSearchTerm, setFosMappingSearchTerm] = useState('');
   const [fosList, setFosList] = useState<FOS[]>([]);
+  const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
   const [visits, setVisits] = useState<FOSVisit[]>([]);
+  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [masterAssets, setMasterAssets] = useState<MasterAsset[]>([]);
   const [fosMappings, setFosMappings] = useState<FOSMapping[]>([]);
   const [locFilter, setLocFilter] = useState<string[]>([]);
@@ -274,6 +277,32 @@ export default function App() {
   });
   const [editingFos, setEditingFos] = useState<FOS | null>(null);
 
+  const [isTelecallerModalOpen, setIsTelecallerModalOpen] = useState(false);
+  const [editingTelecaller, setEditingTelecaller] = useState<Telecaller | null>(null);
+  const [telecallerToDelete, setTelecallerToDelete] = useState<string | null>(null);
+  const [telecallerFormData, setTelecallerFormData] = useState({
+    name: '',
+    employeeId: '',
+    dailyCallTarget: '',
+    monthlyCallTarget: '',
+    dailyConnectedTarget: ''
+  });
+
+  const [isCallLogModalOpen, setIsCallLogModalOpen] = useState(false);
+  const [editingCallLog, setEditingCallLog] = useState<CallLog | null>(null);
+  const [callLogToDelete, setCallLogToDelete] = useState<string | null>(null);
+  const [callLogFormData, setCallLogFormData] = useState({
+    telecallerId: '',
+    telecallerName: '',
+    customerName: '',
+    quoteNo: '',
+    callDate: format(new Date(), 'yyyy-MM-dd'),
+    status: 'Connected' as CallLog['status'],
+    durationMinutes: '',
+    outcome: '',
+    businessGenerated: ''
+  });
+
   const [visitFormData, setVisitFormData] = useState({
     fosId: '',
     fosName: '',
@@ -319,6 +348,44 @@ export default function App() {
       setFosList(list);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'fos');
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'telecallers'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Telecaller[];
+      setTelecallers(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'telecallers');
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const lastMonth = new Date();
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    
+    const q = query(
+      collection(db, 'callLogs'), 
+      where('callDate', '>=', Timestamp.fromDate(lastMonth)),
+      orderBy('callDate', 'desc'),
+      limit(1000)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as CallLog[];
+      setCallLogs(list);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'callLogs');
     });
 
     return () => unsubscribe();
@@ -981,6 +1048,82 @@ export default function App() {
     }
   };
 
+  const handleTelecallerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingTelecaller) {
+        await updateDoc(doc(db, 'telecallers', editingTelecaller.id!), {
+          ...telecallerFormData,
+          dailyCallTarget: Number(telecallerFormData.dailyCallTarget) || 0,
+          monthlyCallTarget: Number(telecallerFormData.monthlyCallTarget) || 0,
+          dailyConnectedTarget: Number(telecallerFormData.dailyConnectedTarget) || 0,
+          updatedAt: serverTimestamp()
+        });
+        setToast({ message: 'Telecaller updated successfully', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'telecallers'), {
+          ...telecallerFormData,
+          dailyCallTarget: Number(telecallerFormData.dailyCallTarget) || 0,
+          monthlyCallTarget: Number(telecallerFormData.monthlyCallTarget) || 0,
+          dailyConnectedTarget: Number(telecallerFormData.dailyConnectedTarget) || 0,
+          createdAt: serverTimestamp()
+        });
+        setToast({ message: 'Telecaller added successfully', type: 'success' });
+      }
+      setIsTelecallerModalOpen(false);
+      setEditingTelecaller(null);
+      setTelecallerFormData({ name: '', employeeId: '', dailyCallTarget: '', monthlyCallTarget: '', dailyConnectedTarget: '' });
+    } catch (error) {
+      handleFirestoreError(error, editingTelecaller ? OperationType.UPDATE : OperationType.CREATE, 'telecallers');
+      setToast({ message: `Failed to ${editingTelecaller ? 'update' : 'add'} Telecaller`, type: 'error' });
+    }
+  };
+
+  const handleCallLogSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const selectedTelecaller = telecallers.find(t => t.id === callLogFormData.telecallerId);
+    try {
+      const data = {
+        ...callLogFormData,
+        telecallerName: selectedTelecaller?.name || '',
+        callDate: Timestamp.fromDate(safeDate(callLogFormData.callDate)),
+        durationMinutes: Number(callLogFormData.durationMinutes) || 0,
+        businessGenerated: Number(callLogFormData.businessGenerated) || 0,
+      };
+
+      if (editingCallLog?.id) {
+        await updateDoc(doc(db, 'callLogs', editingCallLog.id), {
+          ...data,
+          updatedAt: serverTimestamp()
+        });
+        setToast({ message: 'Call log updated successfully', type: 'success' });
+      } else {
+        await addDoc(collection(db, 'callLogs'), {
+          ...data,
+          createdAt: serverTimestamp()
+        });
+        setToast({ message: 'Call logged successfully', type: 'success' });
+      }
+      
+      setIsCallLogModalOpen(false);
+      setEditingCallLog(null);
+      setCallLogFormData({
+        telecallerId: '',
+        telecallerName: '',
+        customerName: '',
+        quoteNo: '',
+        callDate: format(new Date(), 'yyyy-MM-dd'),
+        status: 'Connected',
+        durationMinutes: '',
+        outcome: '',
+        businessGenerated: ''
+      });
+    } catch (error) {
+      handleFirestoreError(error, editingCallLog ? OperationType.UPDATE : OperationType.CREATE, 'callLogs');
+      setToast({ message: `Failed to log call`, type: 'error' });
+    }
+  };
+
   const handleVisitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const selectedFos = fosList.find(f => f.id === visitFormData.fosId);
@@ -1299,6 +1442,32 @@ export default function App() {
       setToast({ message: 'Failed to delete FOS', type: 'error' });
     } finally {
       setFosToDelete(null);
+    }
+  };
+
+  const confirmTelecallerDelete = async () => {
+    if (!telecallerToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'telecallers', telecallerToDelete));
+      setToast({ message: 'Telecaller deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'telecallers');
+      setToast({ message: 'Failed to delete Telecaller', type: 'error' });
+    } finally {
+      setTelecallerToDelete(null);
+    }
+  };
+
+  const confirmCallLogDelete = async () => {
+    if (!callLogToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'callLogs', callLogToDelete));
+      setToast({ message: 'Call log deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'callLogs');
+      setToast({ message: 'Failed to delete call log', type: 'error' });
+    } finally {
+      setCallLogToDelete(null);
     }
   };
 
@@ -1884,6 +2053,13 @@ export default function App() {
             <span className="font-semibold text-sm">FOS Performance</span>
           </button>
           <button 
+            onClick={() => setActiveTab('telecaller-performance')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'telecaller-performance' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+          >
+            <PhoneCall size={20} />
+            <span className="font-semibold text-sm">Telecaller Performance</span>
+          </button>
+          <button 
             onClick={() => setActiveTab('follow-up-schedule')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'follow-up-schedule' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
           >
@@ -1947,6 +2123,7 @@ export default function App() {
                  activeTab === 'customer-wise' ? 'Customer Wise Quotations' :
                  activeTab === 'top-100' ? 'Top 100 Quotations' :
                  activeTab === 'fos-performance' ? 'FOS Performance Tracking' :
+                 activeTab === 'telecaller-performance' ? 'Telecaller Performance' :
                  activeTab === 'follow-up-schedule' ? 'Follow-up Schedule' :
                  activeTab === 'master-sheet' ? 'Asset Master Mapping' :
                  activeTab === 'fos-master' ? 'FOS Master Sheet' :
@@ -3175,6 +3352,185 @@ export default function App() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'telecaller-performance' ? (
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setIsTelecallerModalOpen(true)}
+                className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg active:scale-95"
+              >
+                <Plus size={20} />
+                Add Telecaller
+              </button>
+              <button 
+                onClick={() => setIsCallLogModalOpen(true)}
+                className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95"
+              >
+                <PhoneCall size={20} />
+                Log a Call
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
+                <h3 className="text-lg font-bold text-slate-900 mb-6">Telecaller Score Card</h3>
+                <div className="space-y-4">
+                  {telecallers.map(tc => {
+                    const tcLogs = callLogs.filter(c => c.telecallerId === tc.id && new Date(c.callDate.toDate()).getMonth() === new Date().getMonth());
+                    const tcConnected = tcLogs.filter(c => c.status === 'Connected').length;
+                    const tcBusiness = tcLogs.reduce((sum, c) => sum + (c.businessGenerated || 0), 0);
+                    
+                    return (
+                      <div key={tc.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 group relative">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <p className="font-bold text-slate-900">{tc.name}</p>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{tc.employeeId}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => {
+                                setEditingTelecaller(tc);
+                                setTelecallerFormData({
+                                  name: tc.name,
+                                  employeeId: tc.employeeId,
+                                  dailyCallTarget: tc.dailyCallTarget?.toString() || '',
+                                  monthlyCallTarget: tc.monthlyCallTarget?.toString() || '',
+                                  dailyConnectedTarget: tc.dailyConnectedTarget?.toString() || ''
+                                });
+                                setIsTelecallerModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-[#00AEEF] hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              title="Edit Telecaller"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => setTelecallerToDelete(tc.id!)}
+                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              title="Delete Telecaller"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Calls (Month)</p>
+                            <p className="text-sm font-bold text-slate-700">{tcLogs.length} / {tc.monthlyCallTarget}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Connected</p>
+                            <p className="text-sm font-bold text-[#00AEEF]">{tcConnected} {tc.dailyConnectedTarget ? `/ ${(tc.dailyConnectedTarget * 22)}` : ''}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conversion</p>
+                            <p className="text-sm font-bold text-slate-600">{tcLogs.length > 0 ? Math.round((tcConnected / tcLogs.length) * 100) : 0}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pipeline Gen</p>
+                            <p className="text-sm font-bold text-[#8DC63F]">₹{tcBusiness.toLocaleString('en-IN')}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-900 mb-6">Recent Call Logs (Trending Trackers)</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="pb-4">Call Date</th>
+                        <th className="pb-4">Telecaller</th>
+                        <th className="pb-4">Customer / Quote</th>
+                        <th className="pb-4">Status</th>
+                        <th className="pb-4">Duration</th>
+                        <th className="pb-4 text-right">Biz Gen</th>
+                        <th className="pb-4 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {callLogs.slice(0, 50).map(log => (
+                        <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-4">
+                            <span className="font-bold text-slate-900 text-sm">
+                              {format(log.callDate.toDate(), 'dd MMM yyyy')}
+                            </span>
+                          </td>
+                          <td className="py-4">
+                            <span className="text-xs font-bold text-[#00AEEF]">{log.telecallerName}</span>
+                          </td>
+                          <td className="py-4">
+                            <p className="font-semibold text-slate-900 text-xs">{log.customerName}</p>
+                            {log.quoteNo && <p className="text-[10px] text-slate-500 mt-1">{log.quoteNo}</p>}
+                          </td>
+                          <td className="py-4">
+                            <span className={`px-2 py-1 rounded border text-[10px] font-bold ${
+                              log.status === 'Connected' ? 'border-[#8DC63F] text-[#8DC63F] bg-[#8DC63F]/10' :
+                              log.status === 'Follow-up Scheduled' ? 'border-amber-500 text-amber-500 bg-amber-50' :
+                              'border-red-500 text-red-500 bg-red-50'
+                            }`}>
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="py-4 text-sm font-medium text-slate-600">
+                            {log.durationMinutes ? `${log.durationMinutes} min` : '-'}
+                          </td>
+                          <td className="py-4 text-right">
+                            <span className="font-bold text-[#8DC63F] text-sm">
+                              {log.businessGenerated ? `₹${log.businessGenerated.toLocaleString('en-IN')}` : '-'}
+                            </span>
+                          </td>
+                          <td className="py-4 text-center">
+                            <div className="flex justify-center gap-2">
+                              <button 
+                                onClick={() => {
+                                  setEditingCallLog(log);
+                                  setCallLogFormData({
+                                    telecallerId: log.telecallerId,
+                                    telecallerName: log.telecallerName,
+                                    customerName: log.customerName,
+                                    quoteNo: log.quoteNo || '',
+                                    callDate: log.callDate ? format(log.callDate.toDate(), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+                                    status: log.status,
+                                    durationMinutes: log.durationMinutes?.toString() || '',
+                                    outcome: log.outcome || '',
+                                    businessGenerated: log.businessGenerated?.toString() || ''
+                                  });
+                                  setIsCallLogModalOpen(true);
+                                }}
+                                className="text-slate-400 hover:text-[#00AEEF] transition-colors"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={() => setCallLogToDelete(log.id!)}
+                                className="text-slate-400 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {callLogs.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-slate-500 text-sm">
+                            No call logs available. Log your first call to see trends!
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -4784,6 +5140,283 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Telecaller Modal */}
+      <AnimatePresence>
+        {isTelecallerModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsTelecallerModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">{editingTelecaller ? 'Edit Telecaller' : 'Add Telecaller'}</h3>
+                  <p className="text-slate-500 text-xs mt-1">Manage telecaller details and their call targets.</p>
+                </div>
+                <button onClick={() => { setIsTelecallerModalOpen(false); setEditingTelecaller(null); }} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-[#00AEEF] shadow-sm border border-slate-100 transition-all active:scale-90">
+                  <Plus className="rotate-45" size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleTelecallerSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Telecaller Name</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                    value={telecallerFormData.name}
+                    onChange={(e) => setTelecallerFormData({ ...telecallerFormData, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Employee ID</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                    value={telecallerFormData.employeeId}
+                    onChange={(e) => setTelecallerFormData({ ...telecallerFormData, employeeId: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Daily Target</label>
+                    <input 
+                      required
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={telecallerFormData.dailyCallTarget}
+                      onChange={(e) => setTelecallerFormData({ ...telecallerFormData, dailyCallTarget: e.target.value })}
+                      placeholder="e.g. 100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Connected Target</label>
+                    <input 
+                      required
+                      type="number" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={telecallerFormData.dailyConnectedTarget}
+                      onChange={(e) => setTelecallerFormData({ ...telecallerFormData, dailyConnectedTarget: e.target.value })}
+                      placeholder="e.g. 50"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Monthly Target</label>
+                  <input 
+                    required
+                    type="number" 
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                    value={telecallerFormData.monthlyCallTarget}
+                    onChange={(e) => setTelecallerFormData({ ...telecallerFormData, monthlyCallTarget: e.target.value })}
+                    placeholder="e.g. 2200"
+                  />
+                </div>
+                
+                <div className="pt-4 flex justify-end gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => { setIsTelecallerModalOpen(false); setEditingTelecaller(null); }}
+                    className="px-6 py-2.5 text-slate-500 hover:bg-slate-50 rounded-xl font-semibold transition-all text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-8 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 text-sm"
+                  >
+                    {editingTelecaller ? 'Update' : 'Add Telecaller'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Call Log Modal */}
+      <AnimatePresence>
+        {isCallLogModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCallLogModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">{editingCallLog ? 'Update Call Log' : 'Log a Call'}</h3>
+                  <p className="text-slate-500 text-xs mt-1">Log telecaller calls and their outcomes/value generated.</p>
+                </div>
+                <button onClick={() => { setIsCallLogModalOpen(false); setEditingCallLog(null); }} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-[#00AEEF] shadow-sm border border-slate-100 transition-all active:scale-90">
+                  <Plus className="rotate-45" size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleCallLogSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Telecaller</label>
+                    <select 
+                      required
+                      disabled={!!editingCallLog}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm appearance-none disabled:opacity-60"
+                      value={callLogFormData.telecallerId}
+                      onChange={(e) => setCallLogFormData({ ...callLogFormData, telecallerId: e.target.value })}
+                    >
+                      <option value="">Select Telecaller...</option>
+                      {telecallers.map(tc => (
+                        <option key={tc.id} value={tc.id}>{tc.name} ({tc.employeeId})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Call Date</label>
+                    <input 
+                      required
+                      type="date" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={callLogFormData.callDate}
+                      onChange={(e) => setCallLogFormData({ ...callLogFormData, callDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Customer Name</label>
+                    <input 
+                      required
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={callLogFormData.customerName}
+                      onChange={(e) => setCallLogFormData({ ...callLogFormData, customerName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Quote No (Optional)</label>
+                    <input 
+                      list="tc-quotations-list"
+                      type="text" 
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                      value={callLogFormData.quoteNo}
+                      onChange={(e) => {
+                        const quoteNo = e.target.value;
+                        const matchedQuote = quotations.find(q => q.quoteNo === quoteNo);
+                        if (matchedQuote) {
+                          setCallLogFormData({ 
+                            ...callLogFormData, 
+                            quoteNo: matchedQuote.quoteNo, 
+                            customerName: matchedQuote.customer
+                          });
+                        } else {
+                          setCallLogFormData({ ...callLogFormData, quoteNo });
+                        }
+                      }}
+                      placeholder="Search Quote No..."
+                    />
+                    <datalist id="tc-quotations-list">
+                      {quotations.map(q => (
+                        <option key={q.id} value={q.quoteNo}>{q.customer} ({q.quoteNo})</option>
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Call Status</label>
+                    <select 
+                      required
+                      className={`w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold transition-all text-sm appearance-none
+                        ${callLogFormData.status === 'Connected' ? 'text-green-600' : 'text-slate-900'}
+                      `}
+                      value={callLogFormData.status}
+                      onChange={(e) => setCallLogFormData({ ...callLogFormData, status: e.target.value as any })}
+                    >
+                      <option value="Connected">Connected</option>
+                      <option value="Follow-up Scheduled">Follow-up Scheduled</option>
+                      <option value="Not Reachable">Not Reachable</option>
+                      <option value="Busy">Busy</option>
+                      <option value="Invalid Number">Invalid Number</option>
+                    </select>
+                  </div>
+                  {['Connected', 'Follow-up Scheduled'].includes(callLogFormData.status) && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Duration (Minutes)</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                        value={callLogFormData.durationMinutes}
+                        onChange={(e) => setCallLogFormData({ ...callLogFormData, durationMinutes: e.target.value })}
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {['Connected', 'Follow-up Scheduled'].includes(callLogFormData.status) && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Outcome / Remarks</label>
+                      <textarea 
+                        rows={2}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm resize-none"
+                        value={callLogFormData.outcome}
+                        onChange={(e) => setCallLogFormData({ ...callLogFormData, outcome: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Pipeline Generated (₹)</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00AEEF]/20 outline-none font-semibold text-slate-900 transition-all text-sm"
+                        value={callLogFormData.businessGenerated}
+                        onChange={(e) => setCallLogFormData({ ...callLogFormData, businessGenerated: e.target.value })}
+                        placeholder="Value discussed (Optional)"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="pt-4 flex justify-end gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => { setIsCallLogModalOpen(false); setEditingCallLog(null); }}
+                    className="px-6 py-2.5 text-slate-500 hover:bg-slate-50 rounded-xl font-semibold transition-all text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-8 py-2.5 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 text-sm"
+                  >
+                    {editingCallLog ? 'Update Log' : 'Save Call Log'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Visit Modal */}
       <AnimatePresence>
         {isVisitModalOpen && (
@@ -5288,6 +5921,90 @@ export default function App() {
                   </button>
                   <button 
                     onClick={confirmFosDelete}
+                    className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
+                  >
+                    Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {telecallerToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setTelecallerToDelete(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Telecaller?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Are you sure you want to delete this Telecaller? This will remove them from the system, but their existing call records will remain.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setTelecallerToDelete(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmTelecallerDelete}
+                    className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
+                  >
+                    Delete Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {callLogToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setCallLogToDelete(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Call Log?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Are you sure you want to delete this call log? This action cannot be undone.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setCallLogToDelete(null)}
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmCallLogDelete}
                     className="px-6 py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 text-sm"
                   >
                     Delete Now

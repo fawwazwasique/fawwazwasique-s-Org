@@ -107,3 +107,27 @@ export interface FOSMapping {
   customerName?: string;
   fosName: string;
 }
+
+export interface Telecaller {
+  id?: string;
+  name: string;
+  employeeId: string;
+  dailyCallTarget: number;
+  monthlyCallTarget: number;
+  dailyConnectedTarget?: number;
+  createdAt: Timestamp;
+}
+
+export interface CallLog {
+  id?: string;
+  telecallerId: string;
+  telecallerName: string;
+  customerName: string;
+  quoteNo?: string;
+  callDate: Timestamp;
+  status: 'Connected' | 'Not Reachable' | 'Busy' | 'Invalid Number' | 'Follow-up Scheduled';
+  durationMinutes?: number;
+  outcome?: string;
+  businessGenerated?: number;
+  createdAt: Timestamp;
+}
