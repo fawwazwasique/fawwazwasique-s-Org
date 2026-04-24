@@ -58,7 +58,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'manager' | 'fos';
 }
 
 export interface FOS {

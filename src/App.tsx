@@ -5,6 +5,14 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signOut,
+  User
+} from 'firebase/auth';
+import { 
   collection, 
   onSnapshot, 
   query, 
@@ -18,7 +26,9 @@ import {
   orderBy,
   limit,
   where,
-  getDocFromServer
+  getDocFromServer,
+  getDoc,
+  setDoc
 } from 'firebase/firestore';
 import { 
   BarChart, 
@@ -62,11 +72,13 @@ import {
   ArrowDownRight,
   RefreshCw,
   FileSpreadsheet,
-  PhoneCall
+  PhoneCall,
+  LogOut,
+  UserCircle
 } from 'lucide-react';
 import { format, differenceInDays, parse } from 'date-fns';
 import { db, auth, OperationType, handleFirestoreError } from './firebase';
-import { Quotation, FOS, FOSVisit, MasterAsset, FOSMapping, Telecaller, CallLog } from './types';
+import { Quotation, FOS, FOSVisit, MasterAsset, FOSMapping, Telecaller, CallLog, UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 
@@ -174,8 +186,111 @@ const formatIndianAxis = (value: number) => {
 };
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [authError, setAuthError] = useState('');
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        try {
+          const profileRef = doc(db, 'users', currentUser.uid);
+          const profileSnap = await getDoc(profileRef);
+          
+          if (profileSnap.exists()) {
+            setUserProfile(profileSnap.data() as UserProfile);
+          } else {
+            // Determine role based on email domain
+            const email = currentUser.email || '';
+            let role: 'admin' | 'manager' | 'fos' = 'fos';
+            if (email === 'maniranjangroup@gmail.com' || email.endsWith('@admin.com')) {
+              role = 'admin';
+            } else if (email.endsWith('@manager.com')) {
+              role = 'manager';
+            } else if (email.endsWith('@fos.com')) {
+              role = 'fos';
+            }
+
+            const newProfile: UserProfile = {
+              uid: currentUser.uid,
+              email: email,
+              displayName: currentUser.displayName || '',
+              role: role
+            };
+            await setDoc(profileRef, newProfile);
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        }
+      } else {
+        setUserProfile(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (isSignUp) {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(userCredential.user, { displayName });
+        
+        // Determine role based on email domain
+        let role: 'admin' | 'manager' | 'fos' = 'fos';
+        if (email === 'maniranjangroup@gmail.com' || email.endsWith('@admin.com')) {
+          role = 'admin';
+        } else if (email.endsWith('@manager.com')) {
+          role = 'manager';
+        } else if (email.endsWith('@fos.com')) {
+          role = 'fos';
+        }
+
+        // Create profile in Firestore
+        const profileRef = doc(db, 'users', userCredential.user.uid);
+        const newProfile: UserProfile = {
+          uid: userCredential.user.uid,
+          email: email,
+          displayName: displayName,
+          role: role
+        };
+        await setDoc(profileRef, newProfile);
+        setUserProfile(newProfile);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (error: any) {
+      console.error("Auth failed:", error);
+      let message = 'An error occurred. Please try again.';
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        message = 'Invalid email or password.';
+      } else if (error.code === 'auth/email-already-in-use') {
+        message = 'Email already in use.';
+      } else if (error.code === 'auth/weak-password') {
+        message = 'Password should be at least 6 characters.';
+      }
+      setAuthError(message);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'high-value' | 'fos-performance' | 'telecaller-performance' | 'below-1-lakh' | 'top-100' | 'master-sheet' | 'fos-master' | 'reports' | 'data-management' | 'customer-wise' | 'follow-up-schedule'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1940,6 +2055,153 @@ export default function App() {
     return [...quoteFollowUps, ...visitFollowUps].sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [quotations, visits, fosFilter]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <motion.div
+          animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="w-24 h-24 bg-white p-4 rounded-3xl"
+        >
+          <EthenLogo />
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
+        <motion.div
+           initial={{ y: -20, opacity: 0 }}
+           animate={{ y: 0, opacity: 1 }}
+           className="w-24 h-24 mb-8 bg-white p-4 rounded-3xl shadow-2xl"
+        >
+          <EthenLogo />
+        </motion.div>
+        
+        <div className="w-full max-w-md bg-slate-800 p-8 rounded-3xl border border-slate-700 shadow-2xl">
+          <motion.h1 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-2xl font-black text-white mb-2 text-center"
+          >
+            {isSignUp ? 'Create Account' : 'Welcome Back'}
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-slate-400 mb-8 text-center text-sm font-medium"
+          >
+            {isSignUp ? 'Join Ethen Group Quotation Dashboard' : 'Login to access your performance dashboard'}
+          </motion.p>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            {isSignUp && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Full Name</label>
+                <div className="relative">
+                  <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    required
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Enter your name"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder:text-slate-600 focus:border-[#00AEEF] focus:ring-1 focus:ring-[#00AEEF] outline-none transition-all text-sm"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Email Address</label>
+              <div className="relative">
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                <input
+                  required
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder:text-slate-600 focus:border-[#00AEEF] focus:ring-1 focus:ring-[#00AEEF] outline-none transition-all text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Password</label>
+              <div className="relative">
+                <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                <input
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder:text-slate-600 focus:border-[#00AEEF] focus:ring-1 focus:ring-[#00AEEF] outline-none transition-all text-sm"
+                />
+              </div>
+            </div>
+
+            {authError && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-red-500/10 border border-red-500/20 text-red-500 p-3 rounded-xl text-xs font-bold flex items-center gap-2"
+              >
+                <AlertCircle size={14} />
+                {authError}
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-[#00AEEF] hover:bg-[#0096ce] text-white py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-[0.98] mt-2 flex items-center justify-center gap-2"
+            >
+              {isSignUp ? <Plus size={18} /> : <LogOut className="rotate-180" size={18} />}
+              {isSignUp ? 'Create Account' : 'Sign In'}
+            </button>
+          </form>
+
+          <div className="mt-8 text-center space-y-4">
+            <button 
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setAuthError('');
+              }}
+              className="text-slate-400 hover:text-white transition-all text-xs font-bold block w-full"
+            >
+              {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Create one"}
+            </button>
+            
+            <div className="pt-4 border-t border-slate-700/50">
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-3">Role Selection Guide</p>
+              <div className="flex justify-center gap-4">
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-white">Admin</p>
+                  <p className="text-[8px] text-slate-500">@admin.com</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-white">Manager</p>
+                  <p className="text-[8px] text-slate-500">@manager.com</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-white">FOS</p>
+                  <p className="text-[8px] text-slate-500">@fos.com</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-12 text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+          by Fawwaz Creations
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
       <AnimatePresence>
@@ -2066,37 +2328,66 @@ export default function App() {
             <Clock size={20} />
             <span className="font-semibold text-sm">Follow-up Schedule</span>
           </button>
-          <button 
-            onClick={() => setActiveTab('master-sheet')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'master-sheet' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
-          >
-            <FileText size={20} />
-            <span className="font-semibold text-sm">Asset Master</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('fos-master')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'fos-master' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
-          >
-            <Users size={20} />
-            <span className="font-semibold text-sm">FOS Master Sheet</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
-          >
-            <Download size={20} />
-            <span className="font-semibold text-sm">Reports</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('data-management')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'data-management' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'hover:bg-red-500/10 hover:text-red-500'}`}
-          >
-            <Trash2 size={20} />
-            <span className="font-semibold text-sm">Data Management</span>
-          </button>
+
+          {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+            <>
+              <button 
+                onClick={() => setActiveTab('master-sheet')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'master-sheet' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+              >
+                <FileText size={20} />
+                <span className="font-semibold text-sm">Asset Master</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('fos-master')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'fos-master' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+              >
+                <Users size={20} />
+                <span className="font-semibold text-sm">FOS Master Sheet</span>
+              </button>
+            </>
+          )}
+
+          {userProfile?.role === 'admin' && (
+            <>
+              <button 
+                onClick={() => setActiveTab('reports')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-[#00AEEF] text-white shadow-lg shadow-[#00AEEF]/20' : 'hover:bg-slate-800 hover:text-white'}`}
+              >
+                <Download size={20} />
+                <span className="font-semibold text-sm">Reports</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('data-management')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'data-management' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'hover:bg-red-500/10 hover:text-red-500'}`}
+              >
+                <Trash2 size={20} />
+                <span className="font-semibold text-sm">Data Management</span>
+              </button>
+            </>
+          )}
         </nav>
 
-        <div className="p-6 border-t border-slate-800 mt-auto">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+          <div className="flex items-center gap-3 mb-4 p-2 bg-slate-800/50 rounded-xl">
+            <div className="w-10 h-10 rounded-full bg-[#00AEEF] flex items-center justify-center text-white font-bold">
+              {user?.displayName?.[0] || user?.email?.[0]?.toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-white truncate">{user?.displayName || 'User'}</p>
+              <p className="text-[10px] text-slate-500 truncate uppercase font-bold tracking-wider">{userProfile?.role || 'FOS'}</p>
+            </div>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-all font-bold text-xs"
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
+
+        <div className="p-6 border-t border-slate-800">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">
             by Fawwaz Creations
           </p>
@@ -3221,13 +3512,15 @@ export default function App() {
                             >
                               <Edit2 size={14} />
                             </button>
-                            <button 
-                              onClick={() => setFosToDelete(fos.id!)}
-                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                              title="Delete FOS"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                              <button 
+                                onClick={() => setFosToDelete(fos.id!)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                title="Delete FOS"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100">
@@ -3411,13 +3704,15 @@ export default function App() {
                             >
                               <Edit2 size={14} />
                             </button>
-                            <button 
-                              onClick={() => setTelecallerToDelete(tc.id!)}
-                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                              title="Delete Telecaller"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                              <button 
+                                onClick={() => setTelecallerToDelete(tc.id!)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                title="Delete Telecaller"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         </div>
                         
@@ -3514,12 +3809,14 @@ export default function App() {
                               >
                                 <Edit2 size={16} />
                               </button>
-                              <button 
-                                onClick={() => setCallLogToDelete(log.id!)}
-                                className="text-slate-400 hover:text-red-500 transition-colors"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                                <button 
+                                  onClick={() => setCallLogToDelete(log.id!)}
+                                  className="text-slate-400 hover:text-red-500 transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3615,13 +3912,15 @@ export default function App() {
                                     >
                                       <Edit2 size={16} />
                                     </button>
-                                    <button 
-                                      onClick={() => handleDelete(fu.id!)}
-                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                      title="Delete Quote"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                                    {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                                      <button 
+                                        onClick={() => handleDelete(fu.id!)}
+                                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                        title="Delete Quote"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    )}
                                   </>
                                 ) : (
                                   <>
@@ -3632,13 +3931,15 @@ export default function App() {
                                     >
                                       <Edit2 size={16} />
                                     </button>
-                                    <button 
-                                      onClick={() => setVisitToDelete(fu.id!)}
-                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                      title="Delete Visit"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                                    {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                                      <button 
+                                        onClick={() => setVisitToDelete(fu.id!)}
+                                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                        title="Delete Visit"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -4286,12 +4587,14 @@ export default function App() {
                           >
                             <Edit2 size={16} />
                           </button>
-                          <button 
-                            onClick={() => q.id && handleDelete(q.id)}
-                            className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {(userProfile?.role === 'admin' || userProfile?.role === 'manager') && (
+                            <button 
+                              onClick={() => q.id && handleDelete(q.id)}
+                              className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
