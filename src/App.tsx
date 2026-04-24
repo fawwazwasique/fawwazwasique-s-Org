@@ -196,6 +196,8 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -283,6 +285,16 @@ export default function App() {
       setAuthError(message);
     }
   };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -2397,7 +2409,7 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 ml-64 p-8">
         <header className="flex items-center justify-between mb-8">
-          <div>
+          <div className="flex-1">
             {activeTab === 'dashboard' ? (
               <motion.h2 
                 className="text-3xl font-black capitalize tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[#00AEEF] via-[#8DC63F] to-[#00AEEF] bg-[length:200%_auto]"
@@ -2424,27 +2436,89 @@ export default function App() {
             )}
             <p className="text-slate-500 text-sm mt-1">Ethen Power Solutionns Private Limited - Quotation Tracking</p>
           </div>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95"
-          >
-            <Plus size={20} />
-            New Quotation
-          </button>
-          <button 
-            onClick={() => setIsMasterModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold transition-all active:scale-95 text-sm"
-          >
-            <FileText size={18} />
-            Master Sheet
-          </button>
-          <button 
-            onClick={() => setIsBulkModalOpen(true)}
-            className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-slate-900/20 active:scale-95 ml-4"
-          >
-            <FileText size={20} />
-            Bulk Upload
-          </button>
+          
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="bg-[#00AEEF] hover:bg-[#0096ce] text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-xs"
+              >
+                <Plus size={18} />
+                New Quotation
+              </button>
+              <button 
+                onClick={() => setIsMasterModalOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all active:scale-95 text-xs"
+              >
+                <FileText size={18} />
+                Master Sheet
+              </button>
+              <button 
+                onClick={() => setIsBulkModalOpen(true)}
+                className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-slate-900/20 active:scale-95 text-xs"
+              >
+                <FileText size={18} />
+                Bulk Upload
+              </button>
+            </div>
+
+            {/* Profile Section at Top */}
+            <div className="relative ml-4 border-l border-slate-200 pl-6" ref={profileMenuRef}>
+              <button 
+                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                className="flex items-center gap-3 group p-1 pr-3 rounded-2xl hover:bg-slate-50 transition-all active:scale-95"
+              >
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#00AEEF] to-[#8DC63F] flex items-center justify-center text-white font-bold text-sm shadow-md ring-2 ring-white group-hover:ring-[#00AEEF]/20 transition-all">
+                  {user?.displayName?.[0] || user?.email?.[0]?.toUpperCase()}
+                </div>
+                <div className="text-left hidden sm:block">
+                  <p className="text-xs font-black text-slate-900 leading-tight truncate max-w-[120px]">
+                    {user?.displayName || 'User'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight mt-0.5">
+                    {userProfile?.role || 'FOS'}
+                  </p>
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {isProfileMenuOpen && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 overflow-hidden"
+                  >
+                    <div className="px-4 py-3 border-b border-slate-50 bg-slate-50/50 mb-1">
+                      <p className="text-xs font-bold text-slate-900 truncate">{user?.displayName || 'User'}</p>
+                      <p className="text-[10px] text-slate-500 truncate mt-0.5">{user?.email}</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        setActiveTab('dashboard');
+                        setIsProfileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-[#00AEEF] transition-all text-xs font-bold"
+                    >
+                      <LayoutDashboard size={16} />
+                      Dashboard
+                    </button>
+                    
+                    <div className="h-px bg-slate-100 my-1" />
+                    
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 transition-all text-xs font-black"
+                    >
+                      <LogOut size={16} />
+                      Logout
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         </header>
 
         {/* Shared Filters Bar */}
