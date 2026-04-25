@@ -363,6 +363,7 @@ export default function App() {
   });
 
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [isFosModalOpen, setIsFosModalOpen] = useState(false);
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [editingVisit, setEditingVisit] = useState<FOSVisit | null>(null);
@@ -446,11 +447,10 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Only load the 1000 most recent quotations to save quota
+    // Show all quotations as requested by the user
     const q = query(
       collection(db, 'quotations'), 
-      orderBy('createdAt', 'desc'),
-      limit(1000)
+      orderBy('createdAt', 'desc')
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const qts = snapshot.docs.map(doc => ({
@@ -762,7 +762,9 @@ export default function App() {
             ...updates.map(u => ({ type: 'update' as const, ...u })), 
             ...newItems.map(n => ({ type: 'add' as const, newData: n }))
           ];
-          const batchSize = 500;
+          const batchSize = 200;
+          const totalOperations = allOperations.length;
+          setUploadProgress({ current: 0, total: totalOperations });
           
           for (let i = 0; i < allOperations.length; i += batchSize) {
             const batch = writeBatch(db);
@@ -792,10 +794,18 @@ export default function App() {
             });
             
             await batch.commit();
+            setUploadProgress({ current: Math.min(i + batchSize, totalOperations), total: totalOperations });
+            
+            // Add a small delay between batches to prevent overwhelming the write stream
+            if (i + batchSize < totalOperations) {
+              await new Promise(resolve => setTimeout(resolve, 150));
+            }
           }
           
           setIsBulkModalOpen(false);
           setBulkFile(null);
+          setUploadProgress(null);
+          setToast({ message: `Successfully processed ${totalOperations} quotations`, type: 'success' });
           
           const totalProcessed = updates.length + newItems.length;
           setToast({ 
@@ -827,28 +837,45 @@ export default function App() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const promises = results.data.map((row: any) => {
+          const items = results.data.map((row: any) => {
             const assetNo = standardizeValue(getCSVValue(row, 'Asset No.', 'Asset No', 'AssetNo', 'Asset'));
             const customerCategory = standardizeValue(getCSVValue(row, 'Customer Category', 'Category', 'customerCategory'));
             const customerName = standardizeValue(getCSVValue(row, 'Customer Name', 'Customer', 'customerName'));
             
             if (!assetNo) return null;
             
-            return addDoc(collection(db, 'masterAssets'), {
+            return {
               assetNo,
               customerCategory,
               customerName
-            });
-          }).filter(p => p !== null);
+            };
+          }).filter(item => item !== null);
 
-          await Promise.all(promises);
+          if (items.length === 0) {
+            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
+            setIsUploading(false);
+            return;
+          }
+
+          const batchSize = 200;
+          for (let i = 0; i < items.length; i += batchSize) {
+            const batch = writeBatch(db);
+            const chunk = items.slice(i, i + batchSize);
+            
+            chunk.forEach(item => {
+              const newDocRef = doc(collection(db, 'masterAssets'));
+              batch.set(newDocRef, item);
+            });
+            
+            await batch.commit();
+            if (i + batchSize < items.length) {
+              await new Promise(resolve => setTimeout(resolve, 150));
+            }
+          }
+
           setIsMasterModalOpen(false);
           setMasterFile(null);
-          if (promises.length === 0) {
-            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
-          } else {
-            setToast({ message: `Successfully uploaded ${promises.length} asset mappings`, type: 'success' });
-          }
+          setToast({ message: `Successfully uploaded ${items.length} asset mappings`, type: 'success' });
         } catch (error) {
           handleFirestoreError(error, OperationType.CREATE, 'masterAssets');
           setToast({ message: 'Failed to upload asset master', type: 'error' });
@@ -874,7 +901,7 @@ export default function App() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const promises = results.data.map((row: any) => {
+          const items = results.data.map((row: any) => {
             const customerCategory = standardizeValue(getCSVValue(row, 'Customer Category', 'Category', 'customerCategory'));
             const zone = standardizeValue(getCSVValue(row, 'Zone', 'zone'));
             const customerName = standardizeValue(getCSVValue(row, 'Customer Name', 'Customer', 'customerName'));
@@ -882,22 +909,40 @@ export default function App() {
             
             if (!customerCategory || !zone || !fosName) return null;
             
-            return addDoc(collection(db, 'fosMappings'), {
+            return {
               customerCategory,
               zone,
               customerName,
-              fosName
-            });
-          }).filter(p => p !== null);
+              fosName,
+              createdAt: serverTimestamp()
+            };
+          }).filter(item => item !== null);
 
-          await Promise.all(promises);
+          if (items.length === 0) {
+            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
+            setIsUploading(false);
+            return;
+          }
+
+          const batchSize = 200;
+          for (let i = 0; i < items.length; i += batchSize) {
+            const batch = writeBatch(db);
+            const chunk = items.slice(i, i + batchSize);
+            
+            chunk.forEach(item => {
+              const newDocRef = doc(collection(db, 'fosMappings'));
+              batch.set(newDocRef, item);
+            });
+            
+            await batch.commit();
+            if (i + batchSize < items.length) {
+              await new Promise(resolve => setTimeout(resolve, 150));
+            }
+          }
+
           setIsFosMappingModalOpen(false);
           setFosMappingFile(null);
-          if (promises.length === 0) {
-            setToast({ message: 'No valid rows found in CSV. Please check headers.', type: 'error' });
-          } else {
-            setToast({ message: `Successfully uploaded ${promises.length} FOS mappings`, type: 'success' });
-          }
+          setToast({ message: `Successfully uploaded ${items.length} FOS mappings`, type: 'success' });
         } catch (error) {
           handleFirestoreError(error, OperationType.CREATE, 'fosMappings');
           setToast({ message: 'Failed to upload FOS master', type: 'error' });
@@ -5320,7 +5365,28 @@ export default function App() {
               </div>
               <form onSubmit={handleBulkUpload} className="p-6 space-y-6">
                 <div className="space-y-4">
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                  {uploadProgress ? (
+                    <div className="space-y-4 py-8 text-center">
+                      <div className="w-20 h-20 bg-[#00AEEF]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <RefreshCw className="text-[#00AEEF] animate-spin" size={32} />
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-800">Uploading Quotations...</h4>
+                      <p className="text-xs text-slate-500 font-medium tracking-wide mb-2 uppercase">
+                        {uploadProgress.current} / {uploadProgress.total} records
+                      </p>
+                      <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner">
+                        <motion.div 
+                          className="h-full bg-gradient-to-r from-[#00AEEF] to-[#8DC63F]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                          transition={{ duration: 0.5 }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-medium">Please do not close this window</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
                     <p className="text-xs text-blue-700 font-medium leading-relaxed">
                       Please use the CSV template for correct formatting. Date format should be YYYY-MM-DD.
                     </p>
@@ -5346,24 +5412,38 @@ export default function App() {
                     <p className="text-sm font-bold text-slate-900">{bulkFile ? bulkFile.name : 'Select CSV File'}</p>
                     <p className="text-[10px] text-slate-400 font-medium mt-1">or drag and drop here</p>
                   </div>
+                    </>
+                  )}
                 </div>
 
-                <div className="pt-2 flex justify-end gap-3">
-                  <button 
-                    type="button"
-                    onClick={() => setIsBulkModalOpen(false)}
-                    className="px-6 py-2.5 text-slate-500 hover:bg-slate-50 rounded-xl font-semibold transition-all text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    disabled={!bulkFile || isUploading}
-                    className="px-8 py-2.5 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {isUploading ? 'Uploading...' : 'Start Upload'}
-                  </button>
-                </div>
+                {!uploadProgress && (
+                  <div className="pt-2 flex justify-end gap-3">
+                    <button 
+                      type="button"
+                      onClick={() => setIsBulkModalOpen(false)}
+                      className="px-6 py-2.5 text-slate-500 hover:bg-slate-50 rounded-xl font-semibold transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={!bulkFile || isUploading}
+                      className="px-8 py-2.5 bg-[#00AEEF] hover:bg-[#0096ce] text-white rounded-xl font-bold transition-all shadow-lg shadow-[#00AEEF]/20 active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isUploading ? (
+                        <>
+                          <RefreshCw className="animate-spin" size={18} />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <FileSpreadsheet size={18} />
+                          Start Upload
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </form>
             </motion.div>
           </div>
